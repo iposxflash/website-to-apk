@@ -31,7 +31,7 @@ jobs:
         build-tools: 33.0.0
 
     - name: Fix make.sh cmdline-tools path
-      # Memperbaiki masalah path untuk skrip make.sh
+      # Memperbaiki masalah path yang dicari oleh skrip make.sh
       run: |
         mkdir -p ./cmdline-tools
         if [ -d "$ANDROID_SDK_ROOT/cmdline-tools" ]; then
@@ -43,14 +43,13 @@ jobs:
     - name: Make make.sh Executable
       run: chmod +x make.sh
 
-    # LANGKAH BARU: Menjalankan skrip untuk menerapkan konfigurasi (link, nama, dll.)
-    - name: Run make.sh Configuration
-      # ASUMSI: command './make.sh' (tanpa argumen) menjalankan konfigurasi dari webapk.conf
-      # Jika command kamu berbeda (misalnya './make.sh config'), silakan GANTI './make.sh'
-      run: ./make.sh 
+    # PERBAIKAN FINAL: Menjalankan command yang benar untuk konfigurasi
+    - name: Run make.sh Apply Config
+      # Command yang benar untuk menerapkan konfigurasi dari webapk.conf
+      run: ./make.sh apply_config 
 
     - name: Run make.sh keygen
-      # Langkah ini tetap dijalankan untuk membuat keystore untuk signing
+      # Command untuk membuat keystore
       run: ./make.sh keygen
 
     - name: Get Project Root Path
@@ -59,6 +58,7 @@ jobs:
         echo "ROOT_DIR=$(pwd)" >> $GITHUB_ENV
 
     - name: Build Release (APK and AAB)
+      # Menjalankan Gradle dari root direktori
       run: |
         ./gradlew :app:assembleRelease :app:bundleRelease
 

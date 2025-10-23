@@ -1,4 +1,4 @@
-name: Android Build - Final Version V3
+name: Android Build - Final Working Version
 
 on:
   push:
@@ -24,42 +24,49 @@ jobs:
         java-version: '17'
         cache: 'gradle'
 
-    # PERBAIKAN: Menggunakan action yang berbeda untuk setup SDK, dan menyertakan tools
-    - name: Setup Android SDK and Tools
-      uses: android/setup-android@v3
+    # PERBAIKAN 1: Kembali ke action yang berfungsi (android-actions/setup-android)
+    - name: Setup Android SDK
+      uses: android-actions/setup-android@v3 
       with:
-        # Menginstal API level dan build tools yang dibutuhkan
-        api-level: 33 
+        api-level: 33
         build-tools: 33.0.0
-        # Menerima lisensi Android SDK secara otomatis
-        accept-licenses: true
+        # Action ini akan menyetel ANDROID_SDK_ROOT dan menambah platform-tools ke PATH
 
-    # PERBAIKAN: Menambah path Android Tools ke lingkungan PATH
-    - name: Set Android SDK Paths
+    # PERBAIKAN 2: Menyediakan CMDLINE-TOOLS di lokasi yang dicari oleh make.sh
+    - name: Fix make.sh cmdline-tools path
+      # Berdasarkan log error kamu, make.sh mencari tools di './cmdline-tools' 
+      # relatif terhadap lokasi eksekusi make.sh (root repo)
       run: |
-        # Asumsi SDK di /usr/local/lib/android/sdk/
-        # Tambahkan platform-tools (untuk adb) dan tools lain ke PATH
-        echo "$ANDROID_SDK_ROOT/platform-tools" >> $GITHUB_PATH
-        echo "$ANDROID_SDK_ROOT/tools" >> $GITHUB_PATH
-        echo "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin" >> $GITHUB_PATH
-        # Baris ini memastikan skrip dapat menemukan alat-alat command line
+        # Buat direktori cmdline-tools jika belum ada
+        mkdir -p ./cmdline-tools
+        
+        # Cari lokasi cmdline-tools yang diinstal oleh action
+        # Asumsi path standarnya adalah $ANDROID_SDK_ROOT/cmdline-tools/latest
+        # Kita buat symlink agar make.sh dapat menemukannya di './cmdline-tools'
+        if [ -d "$ANDROID_SDK_ROOT/cmdline-tools" ]; then
+          # Jika folder cmdline-tools yang baru ada, buat symlink ke dalamnya
+          ln -s "$ANDROID_SDK_ROOT/cmdline-tools" ./cmdline-tools
+        else
+          echo "Warning: $ANDROID_SDK_ROOT/cmdline-tools directory not found."
+          # Jika menggunakan action yang berbeda, path mungkin $ANDROID_SDK_ROOT/cmdline-tools/latest
+          # Coba buat symlink ke versi latest sebagai fallback
+          ln -s "$ANDROID_SDK_ROOT/cmdline-tools/latest" ./cmdline-tools
+        fi
         
     - name: Make make.sh Executable
       run: chmod +x make.sh
 
     - name: Run make.sh keygen
-      # Kita coba jalankan dengan izin sudo, karena skrip mungkin memerlukan izin sistem.
-      # Serta memastikan skrip dapat menemukan cmdline-tools
-      run: |
-        ./make.sh keygen 
-      # JIKA GAGAL, coba baris berikut: sudo ./make.sh keygen 
+      # Skrip sekarang seharusnya dapat menemukan cmdline-tools di './cmdline-tools'
+      run: ./make.sh keygen
 
+    # Sisa langkah build dan upload tetap sama
     - name: Get Project Root Path
       id: get-root-path
       run: |
         echo "ROOT_DIR=$(pwd)" >> $GITHUB_ENV
         echo "APP_DIR=$(pwd)/app" >> $GITHUB_ENV
-        
+
     - name: Build Release (APK and AAB)
       run: |
         ./gradlew assembleRelease bundleRelease

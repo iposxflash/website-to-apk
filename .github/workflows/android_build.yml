@@ -24,32 +24,19 @@ jobs:
         java-version: '17'
         cache: 'gradle'
 
-    # PERBAIKAN 1: Kembali ke action yang berfungsi (android-actions/setup-android)
     - name: Setup Android SDK
       uses: android-actions/setup-android@v3 
       with:
         api-level: 33
         build-tools: 33.0.0
-        # Action ini akan menyetel ANDROID_SDK_ROOT dan menambah platform-tools ke PATH
 
-    # PERBAIKAN 2: Menyediakan CMDLINE-TOOLS di lokasi yang dicari oleh make.sh
     - name: Fix make.sh cmdline-tools path
-      # Berdasarkan log error kamu, make.sh mencari tools di './cmdline-tools' 
-      # relatif terhadap lokasi eksekusi make.sh (root repo)
+      # Memperbaiki masalah path untuk skrip make.sh
       run: |
-        # Buat direktori cmdline-tools jika belum ada
         mkdir -p ./cmdline-tools
-        
-        # Cari lokasi cmdline-tools yang diinstal oleh action
-        # Asumsi path standarnya adalah $ANDROID_SDK_ROOT/cmdline-tools/latest
-        # Kita buat symlink agar make.sh dapat menemukannya di './cmdline-tools'
         if [ -d "$ANDROID_SDK_ROOT/cmdline-tools" ]; then
-          # Jika folder cmdline-tools yang baru ada, buat symlink ke dalamnya
           ln -s "$ANDROID_SDK_ROOT/cmdline-tools" ./cmdline-tools
         else
-          echo "Warning: $ANDROID_SDK_ROOT/cmdline-tools directory not found."
-          # Jika menggunakan action yang berbeda, path mungkin $ANDROID_SDK_ROOT/cmdline-tools/latest
-          # Coba buat symlink ke versi latest sebagai fallback
           ln -s "$ANDROID_SDK_ROOT/cmdline-tools/latest" ./cmdline-tools
         fi
         
@@ -57,26 +44,30 @@ jobs:
       run: chmod +x make.sh
 
     - name: Run make.sh keygen
-      # Skrip sekarang seharusnya dapat menemukan cmdline-tools di './cmdline-tools'
       run: ./make.sh keygen
 
-    # Sisa langkah build dan upload tetap sama
     - name: Get Project Root Path
       id: get-root-path
       run: |
+        # Hanya perlu ROOT_DIR saja
         echo "ROOT_DIR=$(pwd)" >> $GITHUB_ENV
-        echo "APP_DIR=$(pwd)/app" >> $GITHUB_ENV
 
     - name: Build Release (APK and AAB)
+      # PERBAIKAN: Hapus 'working-directory' agar perintah dijalankan di root.
+      # Tambahkan ':app' untuk memberitahu Gradle direktori proyek.
       run: |
-        ./gradlew assembleRelease bundleRelease
-      working-directory: ${{ env.APP_DIR }}
+        ./gradlew :app:assembleRelease :app:bundleRelease
+      # working-directory: Dihapus
 
     - name: Find Build Artifacts
       id: find-artifacts
       run: |
-        BUILD_DIR="${{ env.APP_DIR }}/build"
+        # Cari file di direktori build proyek 'app'
+        BUILD_DIR="${{ env.ROOT_DIR }}/app/build"
+        
+        # Cari APK rilis
         APK_PATH=$(find "$BUILD_DIR" -name "*.apk" -type f | grep "release" | head -n 1)
+        # Cari AAB rilis
         AAB_PATH=$(find "$BUILD_DIR" -name "*.aab" -type f | grep "release" | head -n 1)
         
         echo "apk_path=$APK_PATH" >> $GITHUB_OUTPUT

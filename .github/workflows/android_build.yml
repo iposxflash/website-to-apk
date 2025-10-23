@@ -14,6 +14,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+    # ... (Langkah-langkah Checkout, Setup JDK, Setup Android SDK, Fix cmdline-tools path tetap sama) ...
     - name: Checkout Code
       uses: actions/checkout@v4
 
@@ -31,7 +32,6 @@ jobs:
         build-tools: 33.0.0
 
     - name: Fix make.sh cmdline-tools path
-      # Memperbaiki masalah path untuk skrip make.sh
       run: |
         mkdir -p ./cmdline-tools
         if [ -d "$ANDROID_SDK_ROOT/cmdline-tools" ]; then
@@ -43,31 +43,31 @@ jobs:
     - name: Make make.sh Executable
       run: chmod +x make.sh
 
+    # BARU: Langkah untuk Menerapkan Konfigurasi dari webapk.conf
+    - name: Run make.sh Configuration
+      # ASUMSI: command './make.sh' (tanpa argumen) menjalankan konfigurasi dari webapk.conf
+      # Jika command kamu berbeda, GANTI './make.sh' dengan command yang benar
+      run: ./make.sh 
+      
     - name: Run make.sh keygen
       run: ./make.sh keygen
 
     - name: Get Project Root Path
       id: get-root-path
       run: |
-        # Hanya perlu ROOT_DIR saja
         echo "ROOT_DIR=$(pwd)" >> $GITHUB_ENV
 
     - name: Build Release (APK and AAB)
-      # PERBAIKAN: Hapus 'working-directory' agar perintah dijalankan di root.
-      # Tambahkan ':app' untuk memberitahu Gradle direktori proyek.
       run: |
         ./gradlew :app:assembleRelease :app:bundleRelease
-      # working-directory: Dihapus
-
+      
+    # ... (Langkah-langkah Find Build Artifacts, Upload Keystore, APK, AAB tetap sama) ...
     - name: Find Build Artifacts
       id: find-artifacts
       run: |
-        # Cari file di direktori build proyek 'app'
         BUILD_DIR="${{ env.ROOT_DIR }}/app/build"
         
-        # Cari APK rilis
         APK_PATH=$(find "$BUILD_DIR" -name "*.apk" -type f | grep "release" | head -n 1)
-        # Cari AAB rilis
         AAB_PATH=$(find "$BUILD_DIR" -name "*.aab" -type f | grep "release" | head -n 1)
         
         echo "apk_path=$APK_PATH" >> $GITHUB_OUTPUT

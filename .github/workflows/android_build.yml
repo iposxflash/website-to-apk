@@ -1,4 +1,4 @@
-name: Android Build - Final Version
+name: Android Build - Final Version V3
 
 on:
   push:
@@ -18,39 +18,49 @@ jobs:
       uses: actions/checkout@v4
 
     - name: Set up JDK 17
-      # Mengatur Java Development Kit
       uses: actions/setup-java@v4
       with:
         distribution: 'temurin'
         java-version: '17'
         cache: 'gradle'
 
-    # BARU: Langkah untuk menginstal Android SDK
-    - name: Setup Android SDK
-      # Menggunakan action khusus untuk menginstal tools Android
-      uses: android-actions/setup-android@v3 
+    # PERBAIKAN: Menggunakan action yang berbeda untuk setup SDK, dan menyertakan tools
+    - name: Setup Android SDK and Tools
+      uses: android/setup-android@v3
       with:
-        # Menginstal versi yang sering digunakan dan stabil
+        # Menginstal API level dan build tools yang dibutuhkan
         api-level: 33 
-        # Memastikan Command Line Tools dan Build Tools tersedia
-        build-tools: 33.0.0 
+        build-tools: 33.0.0
+        # Menerima lisensi Android SDK secara otomatis
+        accept-licenses: true
 
+    # PERBAIKAN: Menambah path Android Tools ke lingkungan PATH
+    - name: Set Android SDK Paths
+      run: |
+        # Asumsi SDK di /usr/local/lib/android/sdk/
+        # Tambahkan platform-tools (untuk adb) dan tools lain ke PATH
+        echo "$ANDROID_SDK_ROOT/platform-tools" >> $GITHUB_PATH
+        echo "$ANDROID_SDK_ROOT/tools" >> $GITHUB_PATH
+        echo "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin" >> $GITHUB_PATH
+        # Baris ini memastikan skrip dapat menemukan alat-alat command line
+        
     - name: Make make.sh Executable
-      # Memberikan izin eksekusi
       run: chmod +x make.sh
 
     - name: Run make.sh keygen
-      # Sekarang skrip ini seharusnya dapat menemukan Android tools
-      run: ./make.sh keygen
+      # Kita coba jalankan dengan izin sudo, karena skrip mungkin memerlukan izin sistem.
+      # Serta memastikan skrip dapat menemukan cmdline-tools
+      run: |
+        ./make.sh keygen 
+      # JIKA GAGAL, coba baris berikut: sudo ./make.sh keygen 
 
     - name: Get Project Root Path
       id: get-root-path
       run: |
         echo "ROOT_DIR=$(pwd)" >> $GITHUB_ENV
         echo "APP_DIR=$(pwd)/app" >> $GITHUB_ENV
-
+        
     - name: Build Release (APK and AAB)
-      # Menjalankan build Gradle
       run: |
         ./gradlew assembleRelease bundleRelease
       working-directory: ${{ env.APP_DIR }}

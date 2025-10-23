@@ -43,31 +43,31 @@ jobs:
     - name: Make make.sh Executable
       run: chmod +x make.sh
 
+    # LANGKAH BARU: Menjalankan skrip untuk menerapkan konfigurasi (link, nama, dll.)
+    - name: Run make.sh Configuration
+      # ASUMSI: command './make.sh' (tanpa argumen) menjalankan konfigurasi dari webapk.conf
+      # Jika command kamu berbeda (misalnya './make.sh config'), silakan GANTI './make.sh'
+      run: ./make.sh 
+
     - name: Run make.sh keygen
+      # Langkah ini tetap dijalankan untuk membuat keystore untuk signing
       run: ./make.sh keygen
 
     - name: Get Project Root Path
       id: get-root-path
       run: |
-        # Hanya perlu ROOT_DIR saja
         echo "ROOT_DIR=$(pwd)" >> $GITHUB_ENV
 
     - name: Build Release (APK and AAB)
-      # PERBAIKAN: Hapus 'working-directory' agar perintah dijalankan di root.
-      # Tambahkan ':app' untuk memberitahu Gradle direktori proyek.
       run: |
         ./gradlew :app:assembleRelease :app:bundleRelease
-      # working-directory: Dihapus
 
     - name: Find Build Artifacts
       id: find-artifacts
       run: |
-        # Cari file di direktori build proyek 'app'
         BUILD_DIR="${{ env.ROOT_DIR }}/app/build"
         
-        # Cari APK rilis
         APK_PATH=$(find "$BUILD_DIR" -name "*.apk" -type f | grep "release" | head -n 1)
-        # Cari AAB rilis
         AAB_PATH=$(find "$BUILD_DIR" -name "*.aab" -type f | grep "release" | head -n 1)
         
         echo "apk_path=$APK_PATH" >> $GITHUB_OUTPUT

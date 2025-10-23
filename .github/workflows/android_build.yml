@@ -1,12 +1,16 @@
-name: Android Build - Simple Signing
+name: Android Build - Final Version
 
 on:
+  # Trigger workflow saat ada push ke branch 'main'
   push:
     branches:
-      - main  # Ganti sesuai branch utama kamu
+      - main
+  # Trigger workflow saat ada Pull Request ke branch 'main'
   pull_request:
     branches:
       - main
+  # Ini adalah langkah tambahan: Memungkinkan pemicuan manual dari GitHub Actions UI
+  workflow_dispatch:
 
 jobs:
   build:
@@ -14,9 +18,11 @@ jobs:
 
     steps:
     - name: Checkout Code
+      # Mengambil kode dari repositori
       uses: actions/checkout@v4
 
     - name: Set up JDK 17
+      # Mengatur Java Development Kit yang diperlukan untuk Gradle
       uses: actions/setup-java@v4
       with:
         distribution: 'temurin'
@@ -24,36 +30,49 @@ jobs:
         cache: 'gradle'
 
     - name: Make make.sh Executable
-      # Memastikan skrip memiliki izin eksekusi
+      # Memberikan izin eksekusi pada skrip make.sh
       run: chmod +x make.sh
 
     - name: Run make.sh keygen
-      # Menjalankan skrip untuk membuat keystore (my-release-key.jks) 
-      # yang akan digunakan oleh build.gradle.
+      # Menjalankan skrip untuk membuat keystore (my-release-key.jks)
       run: ./make.sh keygen
 
-    - name: Get project path
-      id: get-path
-      # Proyek berada di sub-direktori 'app'
+    - name: Get Project Root Path
+      id: get-root-path
+      # Menyimpan root path repositori (untuk digunakan di langkah selanjutnya)
       run: |
-        echo "path=$(pwd)/app" >> $GITHUB_OUTPUT
+        echo "ROOT_DIR=$(pwd)" >> $GITHUB_ENV
+        echo "APP_DIR=$(pwd)/app" >> $GITHUB_ENV
 
     - name: Build Release (APK and AAB)
-      # Menjalankan build Gradle. Konfigurasi signing akan diambil dari app/build.gradle.
+      # Menjalankan perintah Gradle untuk menghasilkan APK dan AAB.
+      # Konfigurasi signing diambil dari app/build.gradle.
       run: |
         ./gradlew assembleRelease bundleRelease
-      working-directory: ${{ steps.get-path.outputs.path }}
+      working-directory: ${{ env.APP_DIR }}
 
     - name: Find Build Artifacts
       id: find-artifacts
+      # Mencari jalur pasti dari file APK dan AAB yang telah ditandatangani
       run: |
-        # Mencari file APK dan AAB yang dihasilkan
-        APK_PATH=$(find . -name "*.apk" -type f | grep "release" | head -n 1)
-        AAB_PATH=$(find . -name "*.aab" -type f | grep "release" | head -n 1)
+        BUILD_DIR="${{ env.APP_DIR }}/build"
         
+        # Cari APK rilis
+        APK_PATH=$(find "$BUILD_DIR" -name "*.apk" -type f | grep "release" | head -n 1)
+        # Cari AAB rilis
+        AAB_PATH=$(find "$BUILD_DIR" -name "*.aab" -type f | grep "release" | head -n 1)
+        
+        # Simpan jalur sebagai output
         echo "apk_path=$APK_PATH" >> $GITHUB_OUTPUT
         echo "aab_path=$AAB_PATH" >> $GITHUB_OUTPUT
-      working-directory: ${{ steps.get-path.outputs.path }}/build
+
+    - name: Upload Keystore
+      uses: actions/upload-artifact@v4
+      with:
+        name: keystore-file
+        # Mengunggah keystore dengan nama yang dikonfirmasi: my-release-key.jks
+        path: ${{ env.ROOT_DIR }}/my-release-key.jks
+        # Catatan: Jika skrip kamu menyimpan keystore di lokasi lain, harap sesuaikan path ini.
 
     - name: Upload APK Release
       uses: actions/upload-artifact@v4
@@ -66,12 +85,3 @@ jobs:
       with:
         name: release-aab
         path: ${{ steps.find-artifacts.outputs.aab_path }}
-
-    - name: Upload Keystore
-      uses: actions/upload-artifact@v4
-      with:
-        name: keystore-file
-        # Mengunggah keystore yang dibuat oleh make.sh keygen.
-        # Nama file diambil dari build.gradle: my-release-key.jks
-        path: my-release-key.jks
-        # Catatan: Jika 'make.sh keygen' menyimpan file di sub-direktori, harap sesuaikan path di atas.

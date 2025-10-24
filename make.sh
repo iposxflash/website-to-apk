@@ -57,7 +57,6 @@ try() {
 # ----------------------------------------------------------------------------
 
 set_var() {
-    # Memperbaiki masalah kegagalan pencarian variabel (termasuk variabel AdMob)
     local input="$1"
     local var_name="${input%%=*}"
     local raw_value="${input#*=}"
@@ -67,7 +66,7 @@ set_var() {
     
     [ -z "$new_value" ] && error "Empty value provided for $var_name"
 
-    # 1. Menentukan Lokasi MainActivity.java secara Dinamis (PENTING: Mengatasi error 'MainActivity.java not found' setelah chid)
+    # 1. Menentukan Lokasi MainActivity.java secara Dinamis 
     local java_file
     java_file=$(find app/src/main/java -name "MainActivity.java" -type f | head -n 1)
 
@@ -77,14 +76,14 @@ set_var() {
 
     [ ! -f "$java_file" ] && error "MainActivity.java not found in path: $java_file (Pastikan Application ID sudah benar)"
     
-    # 2. Memeriksa Keberadaan Variabel (Mencari semua tipe deklarasi variabel dengan pola yang lebih umum)
+    # 2. Memeriksa Keberadaan Variabel
     local var_pattern="[[:space:]][[:alnum:]_]*[[:space:]]$var_name[[:space:]]*="
 
     if ! grep -q "$var_pattern" "$java_file"; then
         error "Variable '$var_name' not found or improperly declared in MainActivity.java"
     fi
 
-    # 3. Memformat Nilai Baru (String vs. Non-String)
+    # 3. Memformat Nilai Baru
     local escaped_new_value
     if [[ "$new_value" =~ ^(true|false|[0-9]+)$ ]]; then
         escaped_new_value="$new_value" 
@@ -201,7 +200,6 @@ apk() {
     rm -f app/build/outputs/apk/release/app-release.apk
 
     info "Building APK..."
-    # Memperbaiki error 'No such file or directory' pada gradlew dengan memastikan menjalankan dari root
     try "./gradlew assembleRelease --no-daemon --quiet"
 
     if [ -f "app/build/outputs/apk/release/app-release.apk" ]; then
@@ -224,7 +222,6 @@ apk() {
 # ----------------------------------------------------------------------------
 
 test() {
-    # Mengganti grep -oP dengan AWK yang lebih kompatibel
     info "Detected app name: $appname"
     try "adb install app/build/outputs/apk/release/app-release.apk"
     try "adb logcat -c" 
@@ -279,7 +276,7 @@ chid() {
     if [ "$old_full_id" = "$new_full_id" ]; then
         log "Application ID already set to $new_full_id. No changes needed."
         return 0
-    }
+    fi
 
     local old_base_part="${old_full_id%.*}"         
     local old_dir_part="${old_full_id##*.}"         
@@ -300,7 +297,6 @@ chid() {
         try "mv $old_full_dir/* $new_full_dir/"
         
         info "Cleaning up old package directories..."
-        # Menggunakan find -delete yang aman (tidak akan error jika tidak kosong)
         try "find $old_full_dir -depth -type d -empty -delete"
         
         local old_base_path="app/src/main/java/${old_base_part//./\/}"
@@ -328,7 +324,6 @@ check_and_find_java() {
     if command -v java >/dev/null 2>&1; then
         local version=$(java -version 2>&1 | head -n 1 | cut -d'"' -f2 | cut -d'.' -f1)
         if [ "$version" = "17" ]; then
-            # Mencari path instalasi Java yang benar
             if [ -n "$JAVA_HOME" ]; then
                 export JAVA_HOME
             else
@@ -359,42 +354,40 @@ get_java() {
 
 get_tools() {
     local SDK_URL="https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip"
-    local ZIP_FILE="cmdline-tools.zip" # Nama file ZIP sementara
+    local ZIP_FILE="cmdline-tools.zip" 
+    local TMP_DIR=$(mktemp -d) # Direktori sementara baru
 
     mkdir -p cmdline-tools
     
     info "Downloading Android Command Line Tools ZIP..."
-    # 1. Unduh file zip ke disk (MEMPERBAIKI MASALAH UNZIP DARI PIPE)
     try "wget -qO $ZIP_FILE $SDK_URL" 
 
     info "Extracting Android Command Line Tools..."
-    # 2. Ekstrak file dari disk
-    try "unzip -q $ZIP_FILE -d cmdline-tools"
+    # Ekstrak ke direktori sementara
+    try "unzip -q $ZIP_FILE -d $TMP_DIR"
 
-    # Hapus file zip sementara
     try "rm $ZIP_FILE"
 
-    # Pindahkan ke sub-direktori 'latest' sesuai struktur Android SDK
     mkdir -p cmdline-tools/latest
     
-    # 3. Pindahkan file dengan hati-hati (Memperbaiki error 'rmdir' dan 'mv')
-    local extracted_dir_content
-    # Mencari folder 'cmdline-tools' di dalam 'cmdline-tools'
-    extracted_dir_content=$(find cmdline-tools -maxdepth 1 -mindepth 1 -type d -name "cmdline-tools")
-    
-    if [ -n "$extracted_dir_content" ]; then
-        # Kasus 1: Struktur unzip adalah cmdline-tools/cmdline-tools
-        try "mv cmdline-tools/cmdline-tools/* cmdline-tools/latest/"
-        try "rm -rf cmdline-tools/cmdline-tools" 
+    # 3. Pindahkan file dengan aman dari direktori sementara ke cmdline-tools/latest
+    local extracted_source
+    # Cek struktur: Apakah hasil unzip adalah [TMP_DIR]/cmdline-tools?
+    if [ -d "$TMP_DIR/cmdline-tools" ]; then
+        extracted_source="$TMP_DIR/cmdline-tools/*"
     else
-        # Kasus 2: File langsung di root cmdline-tools (atau hanya folder 'tools')
-        try "mv cmdline-tools/* cmdline-tools/latest/"
+        # Jika file langsung di root direktori sementara
+        extracted_source="$TMP_DIR/*"
     fi
+
+    # Memindahkan konten dari sumber yang sudah ditentukan ke cmdline-tools/latest
+    try "mv $extracted_source cmdline-tools/latest/"
+    
+    try "rm -rf $TMP_DIR" # Hapus direktori sementara yang sudah kosong
     
     export PATH="$ANDROID_HOME/latest/bin:$PATH"
     info "Installing Android SDK Build Tools..."
     
-    # Menghilangkan interaktivitas dengan 'yes'
     (yes | try "$ANDROID_HOME/latest/bin/sdkmanager" "platform-tools" "build-tools;34.0.0" "platforms;android-34")
     log "Android SDK installed successfully."
 }

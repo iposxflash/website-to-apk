@@ -9,9 +9,6 @@ readonly BLUE='\033[0;34m'
 readonly NC='\033[0m' # No Color
 readonly BOLD='\033[1m'
 
-# Info for keystore generation
-INFO="CN=Developer, OU=Organization, O=Company, L=City, S=State, C=US"
-
 log() {
     echo -e "${GREEN}[+]${NC} $1"
 }
@@ -54,6 +51,7 @@ try() {
 
 
 set_var() {
+    # Ambil appname dari variabel global yang disiapkan di bawah
     local java_file="app/src/main/java/com/$appname/webtoapk/MainActivity.java"
     [ ! -f "$java_file" ] && error "MainActivity.java not found"
     
@@ -127,8 +125,6 @@ merge_config_with_default() {
     done < <(grep -vE '^[[:space:]]*(#|$)' "$default_conf")
 
     # Now combine default lines (if any) with the user configuration.
-    # The defaults will be added on top, but since they are defined earlier they
-    # can be overridden by any subsequent assignment (если вдруг порядок имеет значение).
     cat "$temp_defaults" "$user_conf" > "$merged_conf"
 
     rm -f "$temp_defaults"
@@ -218,31 +214,30 @@ test() {
     try "adb shell am start -n com.$appname.webtoapk/.MainActivity"
     echo "=========================="
     adb logcat | grep -oP "(?<=WebToApk: ).*"
-
-    # adb logcat *:I | grep com.$appname.webtoapk
-
-	# https://stackoverflow.com/questions/29072501/how-to-unlock-android-phone-through-adb
-	# adb shell input keyevent 26 #Pressing the lock button
-	# sleep 1s
-	# adb shell input touchscreen swipe 930 880 930 380 #Swipe UP
 }
 
+# START: FUNGSI KEYGEN DINAMIS
 keygen() {
     if [ -f "app/my-release-key.jks" ]; then
         warn "Keystore already exists"
-        read -p "Do you want to replace it? (y/N) " -n 1 -r
-        echo
-        if [[ ! $REPLY =~ ^[Yy]$ ]]; then
-            info "Cancelled"
-            return 1
-        fi
-        rm app/my-release-key.jks
+        # Karena di workflow, kita tidak bisa interaktif, kita berasumsi jika file sudah ada,
+        # kita hanya log peringatan dan tidak menimpanya (atau tambahkan logika lain)
+        # Jika Anda ingin menimpa secara otomatis, ganti blok ini.
+        info "Skipping keygen: Keystore already exists. Will use existing key."
+        return 0
     fi
+    
+    # Ambil nilai dari environment variables (disediakan oleh GitHub Workflow)
+    # Jika variabel lingkungan kosong (misalnya jika tidak diatur di workflow), gunakan default yang aman
+    local STORE_PASS="${KEYSTORE_STORE_PASS:-123456}" 
+    local KEY_PASS="${KEYSTORE_KEY_PASS:-$STORE_PASS}" # Gunakan store_pass jika key_pass kosong
+    local DNAME="${KEYSTORE_DNAME_INFO:-CN=Developer,OU=Organization,O=Company,L=City,S=State,C=US}"
 
-    info "Generating keystore..."
-    try "keytool -genkey -v -keystore app/my-release-key.jks -keyalg RSA -keysize 2048 -validity 10000 -alias my -storepass '123456' -keypass '123456' -dname '$INFO'"
+    info "Generating keystore with DNAME: $DNAME"
+    try "keytool -genkey -v -keystore app/my-release-key.jks -keyalg RSA -keysize 2048 -validity 10000 -alias my -storepass '$STORE_PASS' -keypass '$KEY_PASS' -dname '$DNAME'"
     log "Keystore generated successfully"
 }
+# END: FUNGSI KEYGEN DINAMIS
 
 clean() {
     info "Cleaning build files..."
@@ -258,7 +253,7 @@ chid() {
     if ! [[ $1 =~ ^[a-zA-Z][a-zA-Z0-9_]*$ ]]; then
         error "Invalid application ID. Use only letters, numbers and underscores, start with a letter"
     fi
-   
+    
     try "find . -type f \( -name '*.gradle' -o -name '*.java' -o -name '*.xml' \) -exec \
         sed -i 's/com\.\([a-zA-Z0-9_]*\)\.webtoapk/com.$1.webtoapk/g' {} +"
 
@@ -312,7 +307,6 @@ set_deep_link() {
     tmp_file=$(mktemp)
 
     # First, create a version of the manifest without any VIEW/BROWSER intent-filter.
-    # This prepares a clean slate.
     awk '
         # Find any intent-filter block
         /<intent-filter>/, /<\/intent-filter>/ {
@@ -402,7 +396,7 @@ set_network_security_config() {
             log "Enabling user CA support in AndroidManifest.xml"
             try mv "$tmp_file" "$manifest_file"
         else
-             rm -f "$tmp_file"
+            rm -f "$tmp_file"
         fi
     else
         # Remove config from the <application> tag if present
@@ -606,9 +600,9 @@ get_tools() {
     info "Downloading Android Command Line Tools..."
     
     case "$(uname -s)" in
-        Linux*)     os_type="linux";;
-        # Darwin*)    os_type="mac";;
-        *)         error "Unsupported OS";;
+        Linux*)      os_type="linux";;
+        # Darwin*)     os_type="mac";;
+        *)           error "Unsupported OS";;
     esac
     
     tmp_dir=$(mktemp -d)
@@ -631,7 +625,7 @@ get_tools() {
     try "'$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager' --sdk_root=$ANDROID_HOME \
         'platform-tools' \
         'platforms;android-33' \
-        'build-tools;33.0.2'" 
+        'build-tools;33.0.2'"  
 
     log "Android SDK successfully installed!"
 }
@@ -792,15 +786,15 @@ fi
 
 if [ $# -eq 0 ]; then
     echo -e "${BOLD}Usage:${NC}"
-    echo -e "  ${BLUE}$0 keygen${NC}          - Generate signing key"
-    echo -e "  ${BLUE}$0 build${NC} [config]  - Apply configuration and build"
-    echo -e "  ${BLUE}$0 test${NC}            - Install and test APK via adb, show logs"
-    echo -e "  ${BLUE}$0 clean${NC}           - Clean build files, reset settings"
+    echo -e "  ${BLUE}$0 keygen${NC}       - Generate signing key (uses env vars if available)"
+    echo -e "  ${BLUE}$0 build${NC} [config] - Apply configuration and build"
+    echo -e "  ${BLUE}$0 test${NC}         - Install and test APK via adb, show logs"
+    echo -e "  ${BLUE}$0 clean${NC}        - Clean build files, reset settings"
     echo 
-    echo -e "  ${BLUE}$0 apk${NC}             - Build APK without apply_config"
-    echo -e "  ${BLUE}$0 apply_config${NC}    - Apply settings from config file"
-	echo -e "  ${BLUE}$0 get_java${NC}        - Download OpenJDK 17 locally"
-    echo -e "  ${BLUE}$0 regradle${NC}        - Reinstall gradle. You don't need it"
+    echo -e "  ${BLUE}$0 apk${NC}          - Build APK without apply_config"
+    echo -e "  ${BLUE}$0 apply_config${NC} - Apply settings from config file"
+    echo -e "  ${BLUE}$0 get_java${NC}     - Download OpenJDK 17 locally"
+    echo -e "  ${BLUE}$0 regradle${NC}     - Reinstall gradle. You don't need it"
     exit 1
 fi
 

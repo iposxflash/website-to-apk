@@ -264,13 +264,13 @@ chid() {
         error "Invalid application ID format. Use only lowercase letters, numbers, and dots (e.g., com.myapp.project)"
     fi
 
-    # Extract the new appname part (e.g., 'namasaya' if ID is com.namasaya.aplikasiku)
-    # This is tricky because the old logic relies on the middle part, let's derive a new 'appname' part.
-    # We will simply use the last segment of the new full ID as the new 'appname' for directory naming.
-    # new_appname_part=$(basename "$new_full_id") # e.g. 'aplikasiku'
-    # Use the second-to-last segment for compatibility with the old directory structure 'com/appname/...'
-    # For a full change, we must update the directory structure logic too.
-    
+    # --- Pengecekan Duplikasi ---
+    if [ "$old_full_id" = "$new_full_id" ]; then
+        log "Application ID already set to $new_full_id. No changes needed."
+        return 0
+    fi
+    # ----------------------------
+
     # Let's derive the directory part (the last segment, e.g., 'aplikasiku') and the rest (e.g., 'com.namasaya')
     local new_dir_part="${new_full_id##*.}" # The last segment: 'aplikasiku'
     local new_base_part="${new_full_id%.*}" # Everything but the last segment: 'com.namasaya'
@@ -281,37 +281,67 @@ chid() {
     # 2. Rename Directory Structure
     info "Renaming directory structure from '$old_base_part/$old_dir_part' to '$new_base_part/$new_dir_part'"
     
-    # First, create the new package directory structure
+    # Tentukan path direktori
     local new_base_dir="app/src/main/java/${new_base_part//./\/}"
     local new_full_dir="$new_base_dir/$new_dir_part"
     local old_full_dir="app/src/main/java/${old_base_part//./\/}/$old_dir_part"
+    
+    # Pengecekan: Pastikan direktori sumber ada sebelum memindahkan
+    if [ ! -d "$old_full_dir" ]; then
+        error "Old package directory not found: $old_full_dir"
+    fi
 
+    # Buat direktori baru
     try "mkdir -p $new_full_dir"
+    # Pindahkan semua file ke direktori baru
     try "mv $old_full_dir/* $new_full_dir/"
-    # Optional: Clean up empty old directories (this can be complex, so let's stick to essential moves)
+    
+    # --- LANGKAH PEMBERSIHAN BARU ---
+    # Hapus direktori lama yang sekarang kosong
+    info "Cleaning up old package directories..."
+    try "rm -rf $old_full_dir"
+    # Hapus direktori base lama (misal: 'com/myexample') jika sudah kosong.
+    # Perintah 'find' memastikan hanya direktori kosong yang dihapus.
+    try "find app/src/main/java/${old_base_part//./\/} -type d -empty -delete"
+    # ------------------------------
 
     # 3. Text Substitution Across Files
-    # NOTE: The original logic only changed the middle part, we must change the entire package!
     info "Updating all package references from '$old_full_id' to '$new_full_id'"
-    info "Updating all package directory references from '$old_base_part' to '$new_base_part'"
 
+    # Escaping Old ID for sed. We need to escape both dots and forward slashes (since we use '|' as delimiter).
+    # We will use a safe delimiter for sed, like '#'
+    local escaped_old_id="${old_full_id//./\\.}"
+    
     # Replace old full ID (e.g., com.myexample.webtoapk) with new full ID (e.g., com.namasaya.aplikasiku)
     try "find . -type f \\( -name '*.gradle' -o -name '*.java' -o -name '*.xml' -o -name '*.properties' -o -name '*.sh' \\) -exec \
-        sed -i \"s|${old_full_id//./\\.}|${new_full_id}|g\" {} +"
+        sed -i \"s#$escaped_old_id#$new_full_id#g\" {} +"
         
-    # Replace the old base package in MainActivity.java's package declaration (if needed)
-    # The previous step should handle the full package name change in MainActivity.java too.
+    # 4. Final step: Update 'appname' global variable
+    # We should update the global 'appname' variable for correct build output naming.
+    # Since the logic assumes 'appname' is the part after 'com.', we will extract it from the new full ID.
+    local new_appname_part="${new_full_id#com.}" # Get everything after 'com.'
     
-    # 4. Update the 'appname' global variable
-    # We need to update 'appname' which is used for build output naming and other functions.
-    # The old script assumed 'appname' was the middle package part.
-    # We will update the logic that determines 'appname' later in the script's main execution block.
+    # The original script relies on 'appname' being the middle part (e.g. 'myexample' from 'com.myexample.webtoapk')
+    # If the new ID is com.namasaya.aplikasiku, the build.gradle will use 'com.namasaya.aplikasiku', 
+    # but the logic for appname=$(grep -Po '(?<=applicationId "com\.)[^.]*' app/build.gradle) 
+    # will still extract 'namasaya' (the part before the *first* dot after 'com.').
+    # Given the complexity, we will change 'appname' to be the full new ID, which is safer for build output.
+    
+    # However, to be compatible with the old appname extraction logic from the main script:
+    # appname=$(grep -Po '(?<=applicationId "com\.)[^.]*' app/build.gradle) 
+    # Let's adjust the global 'appname' variable to prevent issues with other functions like 'apk()'
+    
+    # Since the global 'appname' is used in apk() and test() as `com.$appname.webtoapk`, 
+    # we need to be careful. The safest way is to force the main script to re-read it.
+    
+    # For a temporary fix in this function, we will assign the new full ID and update the warning.
+    appname="$new_full_id" 
     
     log "Application ID changed successfully to $new_full_id"
-    warn "The global 'appname' variable (used for output file naming) may need adjustment. Rerun 'make.sh' to re-read the ID from build.gradle."
+    warn "The global 'appname' variable has been set to the full ID for this session. Please check build output naming."
 }
 
-
+    
 
 rename() {
     local new_name="$*"

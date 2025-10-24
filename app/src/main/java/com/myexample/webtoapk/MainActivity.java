@@ -104,6 +104,7 @@ public class MainActivity extends AppCompatActivity {
     private static final String ADMOB_APP_ID = "ADMOB_APP_ID"; 
     private static final String BANNER_AD_ID = "BANNER_AD_ID";
     private static final String INTERSTITIAL_AD_ID = "INTERSTITIAL_AD_ID";
+    private static final String SHOW_INTERSTITIAL_ON_EXIT = "SHOW_INTERSTITIAL_ON_EXIT";
     
     String mainURL = "https://ojgrup.com";
     boolean requireDoubleBackToExit = true;

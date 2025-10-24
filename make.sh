@@ -54,43 +54,46 @@ try() {
 
 
 set_var() {
-    local java_file="app/src/main/java/com/$appname/webtoapk/MainActivity.java"
+    local var_name="${1%% =*}"
+    local new_value="${1#*= }"
+    [ -z "$new_value" ] && error "Empty value provided for $var_name"
+
+    # 1. Menentukan Lokasi MainActivity.java secara Dinamis
+    # Kita tidak lagi bisa mengandalkan path statis karena $appname baru bisa jadi 'webview.facebook'
+    local java_file
+    java_file=$(find app/src/main/java -name "MainActivity.java" -type f | head -n 1)
+
+    if [ -z "$java_file" ]; then
+        # Fallback jika 'find' gagal, gunakan path berdasarkan $appname (dari global)
+        java_file="app/src/main/java/$(echo "com.$appname" | tr . /)/MainActivity.java"
+    fi
+
     [ ! -f "$java_file" ] && error "MainActivity.java not found"
     
-    local pattern="$@"
-    [ -z "$pattern" ] && error "Empty pattern. Usage: set_var \"varName = value\""
-    
-    # Извлекаем имя переменной и новое значение
-    local var_name="${pattern%% =*}"
-    local new_value="${pattern#*= }"
-
-    # Проверяем существование переменной
-    if ! grep -q "$var_name *= *.*;" "$java_file"; then
+    # 2. Memeriksa Keberadaan Variabel
+    # Pola yang lebih fleksibel: mencari nama variabel diikuti oleh '='
+    if ! grep -q "[[:space:]]$var_name[[:space:]]*=.*;" "$java_file"; then
         error "Variable '$var_name' not found in MainActivity.java"
     fi
 
-    # Добавляем кавычки если значение не true/false
+    # 3. Memformat Nilai Baru
+    # Tambahkan tanda kutip jika nilai bukan true/false
     if [[ ! "$new_value" =~ ^(true|false)$ ]]; then
-        new_value="\"$new_value\""
+        # Escape tanda kutip di dalam nilai baru
+        local safe_value="${new_value//\"/\\\"}" 
+        new_value="\"$safe_value\""
     fi
     
     local tmp_file=$(mktemp)
     
-    awk -v var="$var_name" -v val="$new_value" '
-    {
-        if (!found && $0 ~ var " *= *.*;" ) {
-            # Сохраняем начало строки до =
-            match($0, "^.*" var " *=")
-            before = substr($0, RSTART, RLENGTH)
-            # Заменяем значение
-            print before " " val ";"
-            # Делаем замену только для первого найденного
-            found = 1
-        } else {
-            print $0
-        }
-    }' "$java_file" > "$tmp_file"
-    
+    # 4. Substitusi dengan sed
+    # Gunakan sed untuk mencari baris yang mengandung nama variabel dan mengganti nilai setelah '='
+    local escaped_var_name="${var_name//./\\.}"
+    local escaped_new_value="${new_value//&/\\&}" # Escape ampersand
+
+    try "sed '/[[:space:]]'"$escaped_var_name"'[[:space:]]*=/ s|=.*;|= '"$escaped_new_value"';|' "$java_file" > "$tmp_file"
+
+    # 5. Menerapkan Perubahan
     if ! diff -q "$java_file" "$tmp_file" >/dev/null; then
         mv "$tmp_file" "$java_file"
         log "Updated $var_name to $new_value"
@@ -102,6 +105,7 @@ set_var() {
         rm "$tmp_file"
     fi
 }
+    
 
 merge_config_with_default() {
     local default_conf="app/default.conf"

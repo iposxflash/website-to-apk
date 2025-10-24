@@ -34,7 +34,6 @@ error() {
 try() {
     local log_file=$(mktemp)
     
-    # Menggunakan "$@" untuk menjalankan command dan menangani quotes dengan benar
     if [ $# -eq 1 ]; then
         if ! eval "$1" &> "$log_file"; then
             echo -e "${RED}[!]${NC} Failed: $1"
@@ -86,8 +85,6 @@ set_var() {
 
     # 3. Memformat Nilai Baru
     local escaped_new_value
-    # Mengganti [[ "$new_value" =~ ... ]] dengan tes yang lebih sederhana jika regex tidak mutlak diperlukan.
-    # Namun, karena [[ ... =~ ... ]] didukung oleh bash/zsh/ksh, kita pertahankan dan pastikan sintaks kurung kurawal aman.
     if [[ "$new_value" =~ ^(true|false|[0-9]+)$ ]]; then
         escaped_new_value="$new_value" 
     else
@@ -267,24 +264,21 @@ chid() {
 
     local new_full_id="$1"
     
-    # Perbaikan Sintaks: Memastikan operator [[ ... ]] diapit oleh spasi.
     if ! [[ $new_full_id =~ ^[a-z0-9]+(\.[a-z0-9]+)*$ ]]; then
         error "Invalid application ID format. Use only lowercase letters, numbers, and dots (e.g., com.myapp.project)"
     fi
 
     local old_full_id
-    # Menggunakan grep -oP hanya jika ada, jika tidak, fall back ke grep/cut
     if command -v grep | grep -q 'GNU'; then
         old_full_id=$(grep -Po 'applicationId\s+"(.*?)"' app/build.gradle | cut -d'"' -f2 || echo "com.myexample.webtoapk") 
     else
-        # Fallback untuk non-GNU grep
-        old_full_id=$(grep 'applicationId' app/build.gradle | grep -o '".*"' | head -n 1 | tr -d '"' || echo "com.myexample.webtoapk")
+        old_full_id=$(grep 'applicationId' app/build.gradle | grep -o 'com\..*"' | head -n 1 | tr -d '"' | cut -d' ' -f2 || echo "com.myexample.webtoapk")
     fi
     
     if [ "$old_full_id" = "$new_full_id" ]; then
         log "Application ID already set to $new_full_id. No changes needed."
         return 0
-    fi # <--- Tanda kurung kurawal ini hilang di iterasi sebelumnya, menyebabkan error syntax
+    fi
 
     local old_base_part="${old_full_id%.*}"         
     local old_dir_part="${old_full_id##*.}"         
@@ -354,7 +348,6 @@ get_java() {
     local URL="https://github.com/adoptium/temurin17-binaries/releases/download/jdk-17.0.10%2B7/OpenJDK17U-jdk_${OS}_x64_hotspot_17.0.10_7.tar.gz"
 
     mkdir -p jvm
-    # Menggunakan try untuk penanganan error
     try "wget -qO- $URL | tar xz -C jvm --strip-components=1"
     
     export JAVA_HOME=$PWD/jvm
@@ -378,13 +371,10 @@ get_tools() {
 
     mkdir -p cmdline-tools/latest
     
-    # 3. Pindahkan file dengan aman dari direktori sementara ke cmdline-tools/latest
     local extracted_source
-    # Cek struktur: Apakah hasil unzip adalah [TMP_DIR]/cmdline-tools?
     if [ -d "$TMP_DIR/cmdline-tools" ]; then
         extracted_source="$TMP_DIR/cmdline-tools/*"
     else
-        # Jika file langsung di root direktori sementara
         extracted_source="$TMP_DIR/*"
     fi
 
@@ -395,8 +385,15 @@ get_tools() {
     export PATH="$ANDROID_HOME/latest/bin:$PATH"
     info "Installing Android SDK Build Tools..."
     
-    # Menggunakan try untuk sdkmanager
-    (yes | try "$ANDROID_HOME/latest/bin/sdkmanager" "platform-tools" "build-tools;34.0.0" "platforms;android-34")
+    # KOREKSI UTAMA UNTUK MENGHINDARI BROKEN PIPE
+    # 1. Terima lisensi SDK secara eksplisit, non-interaktif
+    info "Accepting SDK licenses..."
+    # Menjalankan di sub-shell untuk memastikan $ANDROID_HOME/latest/bin/sdkmanager dapat dijalankan.
+    (yes | try "$ANDROID_HOME/latest/bin/sdkmanager" "--licenses") 
+    
+    # 2. Instal alat yang diperlukan. Tidak perlu 'yes' lagi karena lisensi sudah diterima.
+    try "$ANDROID_HOME/latest/bin/sdkmanager" "platform-tools" "build-tools;34.0.0" "platforms;android-34"
+    
     log "Android SDK installed successfully."
 }
 
@@ -447,11 +444,10 @@ ORIGINAL_PWD="$PWD"
 try cd "$(dirname "$0")"
 
 export ANDROID_HOME=$PWD/cmdline-tools/
-# Menggunakan grep yang aman untuk CI/CD
 if command -v grep | grep -q 'GNU'; then
     appname=$(grep -Po '(?<=applicationId "com\.)[^"]*' app/build.gradle | head -n 1 || echo "myexample.webtoapk") 
 else
-    appname=$(grep 'applicationId' app/build.gradle | grep -o 'com\..*' | head -n 1 | sed 's/"//g' | cut -d'.' -f2- || echo "myexample.webtoapk")
+    appname=$(grep 'applicationId' app/build.gradle | grep -o 'com\..*"' | head -n 1 | sed 's/"//g' | cut -d' ' -f2 | cut -d'.' -f2- || echo "myexample.webtoapk")
 fi
 
 export GRADLE_USER_HOME=$PWD/.gradle-cache

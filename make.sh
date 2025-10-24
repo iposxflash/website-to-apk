@@ -221,8 +221,12 @@ test() {
     try "adb logcat -c" # clean logs
     try "adb shell am start -n com.$appname.webtoapk/.MainActivity"
     echo "=========================="
-    adb logcat | grep -oP "(?<=WebToApk: ).*"
 
+    # --- PERBAIKAN DI BARIS 224 MENGGUNAKAN AWK ---
+    # Mencari baris yang mengandung 'WebToApk: ' dan mencetak sisa baris setelah itu.
+    adb logcat -d | awk '/WebToApk: / { sub(/.*WebToApk: /, ""); print }'
+    # adb logcat -d digunakan agar logcat keluar setelah mencetak log, bukan berjalan terus menermenerus.
+    
     # adb logcat *:I | grep com.$appname.webtoapk
 
 	# https://stackoverflow.com/questions/29072501/how-to-unlock-android-phone-through-adb

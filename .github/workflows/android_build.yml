@@ -1,91 +1,90 @@
 # .github/workflows/android.yml
-name: Build Android APK from Website (Dynamic Keygen)
+name: Build Android APK from Website (Dynamic Keygen - UNSAFE)
 
 on:
-  # Memungkinkan pemicuan manual dari antarmuka web GitHub Actions
   workflow_dispatch:
     inputs:
-      # PERINGATAN: Input ini akan terekspos di log workflow!
+      # PERINGATAN KERAS: INPUT INI AKAN TERLIHAT DI LOG GITHUB ACTIONS!
       store_pass:
         description: 'Keystore Password (storepass)'
         required: true
-        default: '123456'
+        default: 'my_store_pass'
       key_pass:
         description: 'Key Password (keypass) [Kosongkan jika sama dengan Storepass]'
         required: false
-        default: '' # Jika kosong, make.sh akan menggunakan store_pass
+        default: ''
         
       # Input Keystore DNAME (Detail Pengembang)
       keystore_dname:
-        description: 'Detail Keystore DNAME (Contoh: CN=Name,OU=Unit,O=Org,L=City,S=State,C=ID)'
+        description: 'Detail Keystore DNAME (Contoh: CN=Name,O=Org,C=ID)'
         required: true
         default: 'CN=My App Developer,O=MyCorp,C=US'
       
-      # Input untuk Aplikasi (akan digunakan oleh apply_config di make.sh)
+      # Input Konfigurasi Aplikasi
       website_url:
-        description: 'URL Website yang akan dijadikan APK (Harus HTTPS)'
+        description: 'URL Website yang akan dijadikan APK'
         required: true
         default: 'https://mysite.id'
       app_name:
-        description: 'Nama Tampilan Aplikasi (App Name)'
+        description: 'Nama Tampilan Aplikasi'
         required: true
         default: 'Web APK Builder'
         
 jobs:
   build:
     runs-on: ubuntu-latest
-
+    
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
 
-      # 1. Siapkan Environment Variables dan Konfigurasi File
-      - name: Setup Dynamic Variables and Config File
-        run: |
-          # 1a. Siapkan variabel lingkungan untuk keygen di make.sh (TERMASUK PASSWORD)
-          echo "KEYSTORE_STORE_PASS=${{ github.event.inputs.store_pass }}" >> $GITHUB_ENV
-          
-          # Jika key_pass diisi, gunakan; jika tidak, biarkan make.sh menggunakan store_pass
-          if [ -n "${{ github.event.inputs.key_pass }}" ]; then
-            echo "KEYSTORE_KEY_PASS=${{ github.event.inputs.key_pass }}" >> $GITHUB_ENV
-          fi
-          
-          # Siapkan DNAME
-          echo "KEYSTORE_DNAME_INFO=${{ github.event.inputs.keystore_dname }}" >> $GITHUB_ENV
-          
-          # 1b. Buat file konfigurasi (misalnya webapk.conf) dari input
-          # make.sh akan membaca file ini melalui apply_config
-          echo "url=${{ github.event.inputs.website_url }}" > webapk.conf
-          echo "name=${{ github.event.inputs.app_name }}" >> webapk.conf
-          # Tambahkan konfigurasi lain di sini jika make.sh memerlukannya
-          
-          echo "Konfigurasi dan variabel keygen telah disiapkan."
-
-      # 2. Grant Execute Permission dan Panggil keygen
-      - name: Generate Keystore
-        run: |
-          chmod +x make.sh
-          # Memanggil keygen. Script akan menggunakan variabel lingkungan yang di-set di atas
-          ./make.sh keygen
-          
-      # 3. Setup Lingkungan Build (Java dan Android SDK)
-      - name: Setup Java 17 and Android SDK
-        # make.sh Anda memiliki logika untuk mendownload/menyiapkan ini.
-        # Jika Anda ingin menggunakan GitHub Actions bawaan, gunakan actions/setup-java
+      # 1. Setup Java 17
+      - name: Setup Java 17
         uses: actions/setup-java@v4
         with:
           java-version: '17'
           distribution: 'temurin'
           cache: gradle
+
+      # 2. Setup Android SDK Tools (Memperbaiki Error yang Anda alami)
+      - name: Install Android Build Tools
+        # Menginstal versi yang diperlukan (sesuai build.gradle standar)
+        run: |
+          # SDK Manager harus tersedia setelah actions/setup-java
+          yes | sdkmanager "platform-tools" "platforms;android-33" "build-tools;33.0.2"
           
-      # 4. Lanjutkan Proses Build dengan Konfigurasi Dinamis
+      # 3. Siapkan Environment Variables dan Config File dari Input
+      - name: Setup Dynamic Variables and Config File
+        run: |
+          echo "KEYSTORE_STORE_PASS=${{ github.event.inputs.store_pass }}" >> $GITHUB_ENV
+          
+          # Jika key_pass diisi, gunakan; jika tidak, make.sh akan menggunakan store_pass
+          if [ -n "${{ github.event.inputs.key_pass }}" ]; then
+            echo "KEYSTORE_KEY_PASS=${{ github.event.inputs.key_pass }}" >> $GITHUB_ENV
+          fi
+          
+          echo "KEYSTORE_DNAME_INFO=${{ github.event.inputs.keystore_dname }}" >> $GITHUB_ENV
+          
+          # Buat file konfigurasi dinamis yang akan digunakan oleh make.sh build
+          echo "mainURL=${{ github.event.inputs.website_url }}" > webapk.conf
+          echo "name=${{ github.event.inputs.app_name }}" >> webapk.conf
+          echo "Konfigurasi dan variabel keygen telah disiapkan."
+          
+      # 4. Generate Keystore (Menggunakan Variabel Lingkungan yang disiapkan di step 3)
+      - name: Generate Keystore
+        run: |
+          # chmod harus dipanggil di setiap step baru, kecuali di langkah sebelumnya
+          chmod +x make.sh 
+          ./make.sh keygen
+          
+      # 5. Lanjutkan Proses Build
       - name: Build and Sign APK
-        # Memanggil make.sh build dengan file webapk.conf yang dibuat dinamis
         run: ./make.sh build webapk.conf
 
-      # 5. Upload APK (Hasil Build)
+      # 6. Upload APK
       - name: Upload Release APK
         uses: actions/upload-artifact@v4
         with:
           name: ${{ github.event.inputs.app_name }}-release-apk
-          path: app/build/outputs/apk/release/app-release-unsigned.apk # Ganti dengan path APK rilis yang benar
+          # Biasanya file APK rilis diletakkan di sini:
+          path: app/build/outputs/apk/release/app-release.apk

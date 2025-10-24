@@ -251,94 +251,72 @@ clean() {
     log "Clean completed"
 }
 
+
 chid() {
     [ -z "$1" ] && error "Please provide an application ID"
 
     local new_full_id="$1"
-    # The current regex for appname from build.gradle is 'com\.(.*)\.webtoapk', so we assume the old package follows this pattern.
-    local old_appname_part="$appname" # 'appname' is the middle part: 'myexample'
-    local old_full_id="com.$old_appname_part.webtoapk"
     
-    # 1. Validation for the full package name
+    # 1. Validation and Setup
     if ! [[ $new_full_id =~ ^[a-z0-9]+(\.[a-z0-9]+)*$ ]]; then
         error "Invalid application ID format. Use only lowercase letters, numbers, and dots (e.g., com.myapp.project)"
     fi
 
-    # --- Pengecekan Duplikasi ---
+    # Tentukan ID lama dari konfigurasi yang terakhir (asumsi dari app/build.gradle)
+    local old_full_id
+    old_full_id=$(grep -Po 'applicationId\s+"(.*?)"' app/build.gradle | cut -d'"' -f2 || echo "com.myexample.webtoapk") # Fallback to default
+    
     if [ "$old_full_id" = "$new_full_id" ]; then
         log "Application ID already set to $new_full_id. No changes needed."
         return 0
     fi
-    # ----------------------------
 
-    # Let's derive the directory part (the last segment, e.g., 'aplikasiku') and the rest (e.g., 'com.namasaya')
-    local new_dir_part="${new_full_id##*.}" # The last segment: 'aplikasiku'
-    local new_base_part="${new_full_id%.*}" # Everything but the last segment: 'com.namasaya'
-    
-    local old_dir_part="webtoapk" # Assuming the old directory structure ends with 'webtoapk'
-    local old_base_part="com.$old_appname_part" # e.g. 'com.myexample'
-    
-    # 2. Rename Directory Structure
-    info "Renaming directory structure from '$old_base_part/$old_dir_part' to '$new_base_part/$new_dir_part'"
+    # Tentukan bagian-bagian paket untuk PATH direktori
+    local old_base_part="${old_full_id%.*}"         # Misal: com.myexample
+    local old_dir_part="${old_full_id##*.}"         # Misal: webtoapk
+
+    local new_base_part="${new_full_id%.*}"         # Misal: com.webview
+    local new_dir_part="${new_full_id##*.}"         # Misal: facebook
     
     # Tentukan path direktori
+    local old_full_dir="app/src/main/java/${old_base_part//./\/}/$old_dir_part"
     local new_base_dir="app/src/main/java/${new_base_part//./\/}"
     local new_full_dir="$new_base_dir/$new_dir_part"
-    local old_full_dir="app/src/main/java/${old_base_part//./\/}/$old_dir_part"
     
-    # Pengecekan: Pastikan direktori sumber ada sebelum memindahkan
+    # Pengecekan: Jika direktori sumber belum ada, kita asumsikan ini adalah build pertama
     if [ ! -d "$old_full_dir" ]; then
-        error "Old package directory not found: $old_full_dir"
+        warn "Old package directory not found: $old_full_dir. Assuming files are in default location."
+    else
+        # 2. Rename Directory Structure
+        info "Renaming directory structure from '$old_base_part/$old_dir_part' to '$new_base_part/$new_dir_part'"
+        
+        try "mkdir -p $new_full_dir"
+        try "mv $old_full_dir/* $new_full_dir/"
+        
+        # 3. Pembersihan Direktori Lama
+        info "Cleaning up old package directories..."
+        try "rm -rf $old_full_dir"
+        # Hapus direktori base lama (com/myexample) jika kosong
+        try "find app/src/main/java/${old_base_part//./\/} -type d -empty -delete"
     fi
 
-    # Buat direktori baru
-    try "mkdir -p $new_full_dir"
-    # Pindahkan semua file ke direktori baru
-    try "mv $old_full_dir/* $new_full_dir/"
-    
-    # --- LANGKAH PEMBERSIHAN BARU ---
-    # Hapus direktori lama yang sekarang kosong
-    info "Cleaning up old package directories..."
-    try "rm -rf $old_full_dir"
-    # Hapus direktori base lama (misal: 'com/myexample') jika sudah kosong.
-    # Perintah 'find' memastikan hanya direktori kosong yang dihapus.
-    try "find app/src/main/java/${old_base_part//./\/} -type d -empty -delete"
-    # ------------------------------
 
-    # 3. Text Substitution Across Files
+    # 4. Text Substitution Across Files
     info "Updating all package references from '$old_full_id' to '$new_full_id'"
 
-    # Escaping Old ID for sed. We need to escape both dots and forward slashes (since we use '|' as delimiter).
-    # We will use a safe delimiter for sed, like '#'
+    # Gunakan '#' sebagai delimiter dan escape titik
     local escaped_old_id="${old_full_id//./\\.}"
     
-    # Replace old full ID (e.g., com.myexample.webtoapk) with new full ID (e.g., com.namasaya.aplikasiku)
+    # Ganti seluruh ID lama dengan ID baru di semua file
     try "find . -type f \\( -name '*.gradle' -o -name '*.java' -o -name '*.xml' -o -name '*.properties' -o -name '*.sh' \\) -exec \
         sed -i \"s#$escaped_old_id#$new_full_id#g\" {} +"
         
-    # 4. Final step: Update 'appname' global variable
-    # We should update the global 'appname' variable for correct build output naming.
-    # Since the logic assumes 'appname' is the part after 'com.', we will extract it from the new full ID.
-    local new_appname_part="${new_full_id#com.}" # Get everything after 'com.'
-    
-    # The original script relies on 'appname' being the middle part (e.g. 'myexample' from 'com.myexample.webtoapk')
-    # If the new ID is com.namasaya.aplikasiku, the build.gradle will use 'com.namasaya.aplikasiku', 
-    # but the logic for appname=$(grep -Po '(?<=applicationId "com\.)[^.]*' app/build.gradle) 
-    # will still extract 'namasaya' (the part before the *first* dot after 'com.').
-    # Given the complexity, we will change 'appname' to be the full new ID, which is safer for build output.
-    
-    # However, to be compatible with the old appname extraction logic from the main script:
-    # appname=$(grep -Po '(?<=applicationId "com\.)[^.]*' app/build.gradle) 
-    # Let's adjust the global 'appname' variable to prevent issues with other functions like 'apk()'
-    
-    # Since the global 'appname' is used in apk() and test() as `com.$appname.webtoapk`, 
-    # we need to be careful. The safest way is to force the main script to re-read it.
-    
-    # For a temporary fix in this function, we will assign the new full ID and update the warning.
-    appname="$new_full_id" 
+    # 5. Update the 'appname' global variable
+    # appname harus menjadi bagian setelah 'com.' agar kompatibel dengan logika lama skrip ini
+    local new_appname_part="${new_full_id#com.}" 
+    appname="$new_appname_part" # Misal: webview.facebook
     
     log "Application ID changed successfully to $new_full_id"
-    warn "The global 'appname' variable has been set to the full ID for this session. Please check build output naming."
 }
 
     

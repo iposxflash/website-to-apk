@@ -101,7 +101,11 @@ public class MainActivity extends AppCompatActivity {
     private BroadcastReceiver unifiedPushEndpointReceiver;
     private BroadcastReceiver mediaActionReceiver;
 
-    String mainURL = "https://github.com/Jipok";
+    private static final String ADMOB_APP_ID = "ADMOB_APP_ID"; 
+    private static final String BANNER_AD_ID = "BANNER_AD_ID";
+    private static final String INTERSTITIAL_AD_ID = "INTERSTITIAL_AD_ID";
+    
+    String mainURL = "https://ojgrup.com";
     boolean requireDoubleBackToExit = true;
     boolean allowSubdomains = true;
 

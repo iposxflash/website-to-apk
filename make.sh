@@ -53,7 +53,7 @@ try() {
 }
 
 # ----------------------------------------------------------------------------
-# --- FUNGSI UTAMA YANG DIPERBAIKI (set_var) ---
+# --- FUNGSI UTAMA (set_var) ---
 # ----------------------------------------------------------------------------
 
 set_var() {
@@ -69,14 +69,13 @@ set_var() {
 
     # 1. Menentukan Lokasi MainActivity.java secara Dinamis
     local java_file
-    # Mencari file berdasarkan nama, lalu memvalidasi path dengan $appname sebagai fallback
     java_file=$(find app/src/main/java -name "MainActivity.java" -type f | head -n 1)
 
     if [ -z "$java_file" ] || ! echo "$java_file" | grep -q "$(echo "com.$appname" | tr . /)"; then
         java_file="app/src/main/java/$(echo "com.$appname" | tr . /)/MainActivity.java"
     fi
 
-    [ ! -f "$java_file" ] && error "MainActivity.java not found in path: $java_file (Package ID mungkin salah set di chid)"
+    [ ! -f "$java_file" ] && error "MainActivity.java not found in path: $java_file (Pastikan Application ID sudah benar)"
     
     # 2. Memeriksa Keberadaan Variabel (Mencari semua tipe deklarasi variabel)
     local var_pattern="[[:space:]][[:alnum:]_]*[[:space:]]$var_name[[:space:]]*="
@@ -220,7 +219,7 @@ apk() {
 }
 
 # ----------------------------------------------------------------------------
-# --- FUNGSI UTAMA YANG DIPERBAIKI (test) ---
+# --- FUNGSI UTAMA (test) ---
 # ----------------------------------------------------------------------------
 
 test() {
@@ -236,7 +235,7 @@ test() {
 }
 
 # ----------------------------------------------------------------------------
-# --- FUNGSI UTAMA YANG DIPERBAIKI (keygen) ---
+# --- FUNGSI UTAMA (keygen) ---
 # ----------------------------------------------------------------------------
 
 keygen() {
@@ -321,18 +320,19 @@ chid() {
 }
 
 # ----------------------------------------------------------------------------
-# --- FUNGSI PENDUKUNG YANG HILANG/TERKAIT EROR ---
+# --- FUNGSI PENDUKUNG (Java/Tools/Rename) ---
 # ----------------------------------------------------------------------------
 
-# Catatan: Fungsi-fungsi ini harus ada agar skrip tidak menghasilkan 'command not found'
-# Saya asumsikan ini adalah fungsi dari skrip aslinya.
-
-# Placeholder untuk fungsi Java (diperlukan karena kegagalan 'check_and_find_java' dan 'get_java')
 check_and_find_java() {
     if command -v java >/dev/null 2>&1; then
         local version=$(java -version 2>&1 | head -n 1 | cut -d'"' -f2 | cut -d'.' -f1)
         if [ "$version" = "17" ]; then
-            export JAVA_HOME=$(dirname $(dirname $(readlink -f $(which java))))
+            # Mencari path instalasi Java yang benar
+            if [ -n "$JAVA_HOME" ]; then
+                export JAVA_HOME
+            else
+                export JAVA_HOME=$(dirname $(dirname $(readlink -f $(which java) 2>/dev/null) 2>/dev/null) 2>/dev/null)
+            fi
             return 0
         fi
     fi
@@ -358,18 +358,38 @@ get_java() {
 
 get_tools() {
     local SDK_URL="https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip"
+    local ZIP_FILE="cmdline-tools.zip" # Nama file ZIP sementara
+
     mkdir -p cmdline-tools
-    try "wget -qO- $SDK_URL | unzip -q -d cmdline-tools"
+    
+    info "Downloading Android Command Line Tools ZIP..."
+    # 1. Unduh file zip ke disk (MEMPERBAIKI MASALAH UNZIP DARI PIPE)
+    try "wget -qO $ZIP_FILE $SDK_URL" 
+
+    info "Extracting Android Command Line Tools..."
+    # 2. Ekstrak file dari disk
+    try "unzip -q $ZIP_FILE -d cmdline-tools"
+
+    # Hapus file zip sementara
+    try "rm $ZIP_FILE"
 
     # Pindahkan ke sub-direktori 'latest' sesuai struktur Android SDK
     mkdir -p cmdline-tools/latest
-    try "mv cmdline-tools/cmdline-tools/* cmdline-tools/latest/"
-    try "rmdir cmdline-tools/cmdline-tools"
-
+    # Menangani dua kemungkinan struktur hasil unzip
+    if [ -d "cmdline-tools/cmdline-tools" ]; then
+        try "mv cmdline-tools/cmdline-tools/* cmdline-tools/latest/"
+        try "rmdir cmdline-tools/cmdline-tools"
+    elif [ -n "$(ls -A cmdline-tools | grep tools)" ]; then # Cek jika hanya ada folder 'tools'
+        try "mv cmdline-tools/* cmdline-tools/latest/"
+    else
+        # Jika file langsung di root cmdline-tools
+        try "mv cmdline-tools/* cmdline-tools/latest/"
+    fi
+    
     export PATH="$ANDROID_HOME/latest/bin:$PATH"
     info "Installing Android SDK Build Tools..."
     
-    # Menghilangkan interaktivitas dengan --all dan accept
+    # Menghilangkan interaktivitas dengan 'yes'
     (yes | try "$ANDROID_HOME/latest/bin/sdkmanager" "platform-tools" "build-tools;34.0.0" "platforms;android-34")
     log "Android SDK installed successfully."
 }
@@ -399,7 +419,7 @@ rename() {
     done
 }
 
-# Placeholder untuk fungsi lain yang mungkin ada di skrip asli
+# Placeholder untuk fungsi lain (asumsi tidak menghasilkan error)
 set_deep_link() { log "Setting deep link not implemented in this version"; }
 set_network_security_config() { log "Setting network security config not implemented in this version"; }
 set_icon() { log "Setting icon not implemented in this version"; }
@@ -418,7 +438,6 @@ build() {
 
 ORIGINAL_PWD="$PWD"
 
-# PENTING: Gunakan cd dengan try
 try cd "$(dirname "$0")"
 
 export ANDROID_HOME=$PWD/cmdline-tools/

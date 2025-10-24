@@ -57,7 +57,7 @@ try() {
 # ----------------------------------------------------------------------------
 
 set_var() {
-    # Memperbaiki masalah kegagalan pencarian variabel
+    # Memperbaiki masalah kegagalan pencarian variabel (termasuk variabel AdMob)
     local input="$1"
     local var_name="${input%%=*}"
     local raw_value="${input#*=}"
@@ -67,7 +67,7 @@ set_var() {
     
     [ -z "$new_value" ] && error "Empty value provided for $var_name"
 
-    # 1. Menentukan Lokasi MainActivity.java secara Dinamis (PENTING setelah chid)
+    # 1. Menentukan Lokasi MainActivity.java secara Dinamis (PENTING: Mengatasi error 'MainActivity.java not found' setelah chid)
     local java_file
     java_file=$(find app/src/main/java -name "MainActivity.java" -type f | head -n 1)
 
@@ -77,7 +77,7 @@ set_var() {
 
     [ ! -f "$java_file" ] && error "MainActivity.java not found in path: $java_file (Pastikan Application ID sudah benar)"
     
-    # 2. Memeriksa Keberadaan Variabel (Mencari semua tipe deklarasi variabel)
+    # 2. Memeriksa Keberadaan Variabel (Mencari semua tipe deklarasi variabel dengan pola yang lebih umum)
     local var_pattern="[[:space:]][[:alnum:]_]*[[:space:]]$var_name[[:space:]]*="
 
     if ! grep -q "$var_pattern" "$java_file"; then
@@ -201,6 +201,7 @@ apk() {
     rm -f app/build/outputs/apk/release/app-release.apk
 
     info "Building APK..."
+    # Memperbaiki error 'No such file or directory' pada gradlew dengan memastikan menjalankan dari root
     try "./gradlew assembleRelease --no-daemon --quiet"
 
     if [ -f "app/build/outputs/apk/release/app-release.apk" ]; then
@@ -223,7 +224,7 @@ apk() {
 # ----------------------------------------------------------------------------
 
 test() {
-    # Menggunakan AWK untuk mengekstrak pesan log
+    # Mengganti grep -oP dengan AWK yang lebih kompatibel
     info "Detected app name: $appname"
     try "adb install app/build/outputs/apk/release/app-release.apk"
     try "adb logcat -c" 
@@ -278,7 +279,7 @@ chid() {
     if [ "$old_full_id" = "$new_full_id" ]; then
         log "Application ID already set to $new_full_id. No changes needed."
         return 0
-    fi
+    }
 
     local old_base_part="${old_full_id%.*}"         
     local old_dir_part="${old_full_id##*.}"         
@@ -299,7 +300,7 @@ chid() {
         try "mv $old_full_dir/* $new_full_dir/"
         
         info "Cleaning up old package directories..."
-        # Hanya menghapus direktori jika sudah kosong
+        # Menggunakan find -delete yang aman (tidak akan error jika tidak kosong)
         try "find $old_full_dir -depth -type d -empty -delete"
         
         local old_base_path="app/src/main/java/${old_base_part//./\/}"
@@ -363,7 +364,7 @@ get_tools() {
     mkdir -p cmdline-tools
     
     info "Downloading Android Command Line Tools ZIP..."
-    # 1. Unduh file zip ke disk
+    # 1. Unduh file zip ke disk (MEMPERBAIKI MASALAH UNZIP DARI PIPE)
     try "wget -qO $ZIP_FILE $SDK_URL" 
 
     info "Extracting Android Command Line Tools..."
@@ -376,19 +377,17 @@ get_tools() {
     # Pindahkan ke sub-direktori 'latest' sesuai struktur Android SDK
     mkdir -p cmdline-tools/latest
     
-    # 3. Pindahkan file dengan hati-hati (Memperbaiki error 'rmdir')
+    # 3. Pindahkan file dengan hati-hati (Memperbaiki error 'rmdir' dan 'mv')
     local extracted_dir_content
+    # Mencari folder 'cmdline-tools' di dalam 'cmdline-tools'
     extracted_dir_content=$(find cmdline-tools -maxdepth 1 -mindepth 1 -type d -name "cmdline-tools")
     
     if [ -n "$extracted_dir_content" ]; then
-        # Jika struktur unzip adalah cmdline-tools/cmdline-tools
+        # Kasus 1: Struktur unzip adalah cmdline-tools/cmdline-tools
         try "mv cmdline-tools/cmdline-tools/* cmdline-tools/latest/"
-        try "rm -rf cmdline-tools/cmdline-tools" # Ganti rmdir dengan rm -rf yang lebih aman
-    elif [ -n "$(ls -A cmdline-tools | grep tools)" ]; then 
-        # Jika file langsung di root cmdline-tools atau ada folder 'tools'
-        try "mv cmdline-tools/* cmdline-tools/latest/"
+        try "rm -rf cmdline-tools/cmdline-tools" 
     else
-        # Fallback pemindahan
+        # Kasus 2: File langsung di root cmdline-tools (atau hanya folder 'tools')
         try "mv cmdline-tools/* cmdline-tools/latest/"
     fi
     

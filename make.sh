@@ -57,7 +57,7 @@ try() {
 # ----------------------------------------------------------------------------
 
 set_var() {
-    # Memperbaiki masalah kegagalan pencarian variabel (seperti SHOW_INTERSTITIAL_ON_EXIT)
+    # Memperbaiki masalah kegagalan pencarian variabel
     local input="$1"
     local var_name="${input%%=*}"
     local raw_value="${input#*=}"
@@ -67,7 +67,7 @@ set_var() {
     
     [ -z "$new_value" ] && error "Empty value provided for $var_name"
 
-    # 1. Menentukan Lokasi MainActivity.java secara Dinamis
+    # 1. Menentukan Lokasi MainActivity.java secara Dinamis (PENTING setelah chid)
     local java_file
     java_file=$(find app/src/main/java -name "MainActivity.java" -type f | head -n 1)
 
@@ -223,14 +223,13 @@ apk() {
 # ----------------------------------------------------------------------------
 
 test() {
-    # Memperbaiki syntax error grep -oP
+    # Menggunakan AWK untuk mengekstrak pesan log
     info "Detected app name: $appname"
     try "adb install app/build/outputs/apk/release/app-release.apk"
     try "adb logcat -c" 
     try "adb shell am start -n com.$appname/.MainActivity" 
     echo "=========================="
 
-    # Menggunakan AWK yang lebih universal
     adb logcat -d | awk '/WebToApk: / { sub(/.*WebToApk: /, ""); print }'
 }
 
@@ -239,7 +238,7 @@ test() {
 # ----------------------------------------------------------------------------
 
 keygen() {
-    # Menghilangkan read -p untuk non-interaktivitas CI/CD
+    # Dibuat non-interaktif untuk CI/CD (Memperbaiki error syntax 'read -p')
     if [ -f "app/my-release-key.jks" ]; then
         warn "Keystore app/my-release-key.jks already exists. Skipping key generation for CI/CD."
         return 0
@@ -300,7 +299,8 @@ chid() {
         try "mv $old_full_dir/* $new_full_dir/"
         
         info "Cleaning up old package directories..."
-        try "rm -rf $old_full_dir"
+        # Hanya menghapus direktori jika sudah kosong
+        try "find $old_full_dir -depth -type d -empty -delete"
         
         local old_base_path="app/src/main/java/${old_base_part//./\/}"
         try "find $old_base_path -depth -type d -empty -delete"
@@ -363,7 +363,7 @@ get_tools() {
     mkdir -p cmdline-tools
     
     info "Downloading Android Command Line Tools ZIP..."
-    # 1. Unduh file zip ke disk (MEMPERBAIKI MASALAH UNZIP DARI PIPE)
+    # 1. Unduh file zip ke disk
     try "wget -qO $ZIP_FILE $SDK_URL" 
 
     info "Extracting Android Command Line Tools..."
@@ -375,14 +375,20 @@ get_tools() {
 
     # Pindahkan ke sub-direktori 'latest' sesuai struktur Android SDK
     mkdir -p cmdline-tools/latest
-    # Menangani dua kemungkinan struktur hasil unzip
-    if [ -d "cmdline-tools/cmdline-tools" ]; then
+    
+    # 3. Pindahkan file dengan hati-hati (Memperbaiki error 'rmdir')
+    local extracted_dir_content
+    extracted_dir_content=$(find cmdline-tools -maxdepth 1 -mindepth 1 -type d -name "cmdline-tools")
+    
+    if [ -n "$extracted_dir_content" ]; then
+        # Jika struktur unzip adalah cmdline-tools/cmdline-tools
         try "mv cmdline-tools/cmdline-tools/* cmdline-tools/latest/"
-        try "rmdir cmdline-tools/cmdline-tools"
-    elif [ -n "$(ls -A cmdline-tools | grep tools)" ]; then # Cek jika hanya ada folder 'tools'
+        try "rm -rf cmdline-tools/cmdline-tools" # Ganti rmdir dengan rm -rf yang lebih aman
+    elif [ -n "$(ls -A cmdline-tools | grep tools)" ]; then 
+        # Jika file langsung di root cmdline-tools atau ada folder 'tools'
         try "mv cmdline-tools/* cmdline-tools/latest/"
     else
-        # Jika file langsung di root cmdline-tools
+        # Fallback pemindahan
         try "mv cmdline-tools/* cmdline-tools/latest/"
     fi
     

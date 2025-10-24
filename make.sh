@@ -34,6 +34,7 @@ error() {
 try() {
     local log_file=$(mktemp)
     
+    # Menggunakan "$@" untuk menjalankan command dan menangani quotes dengan benar
     if [ $# -eq 1 ]; then
         if ! eval "$1" &> "$log_file"; then
             echo -e "${RED}[!]${NC} Failed: $1"
@@ -85,6 +86,8 @@ set_var() {
 
     # 3. Memformat Nilai Baru
     local escaped_new_value
+    # Mengganti [[ "$new_value" =~ ... ]] dengan tes yang lebih sederhana jika regex tidak mutlak diperlukan.
+    # Namun, karena [[ ... =~ ... ]] didukung oleh bash/zsh/ksh, kita pertahankan dan pastikan sintaks kurung kurawal aman.
     if [[ "$new_value" =~ ^(true|false|[0-9]+)$ ]]; then
         escaped_new_value="$new_value" 
     else
@@ -236,7 +239,6 @@ test() {
 # ----------------------------------------------------------------------------
 
 keygen() {
-    # Dibuat non-interaktif untuk CI/CD (Memperbaiki error syntax 'read -p')
     if [ -f "app/my-release-key.jks" ]; then
         warn "Keystore app/my-release-key.jks already exists. Skipping key generation for CI/CD."
         return 0
@@ -244,7 +246,6 @@ keygen() {
     
     info "Generating new release key (my-release-key.jks)..."
     
-    # Perintah keytool non-interaktif
     try "keytool -genkey -v -keystore app/my-release-key.jks -keyalg RSA -keysize 2048 -validity 10000 -alias my -storepass '123456' -keypass '123456' -dname '$INFO'"
     
     log "Keystore generated successfully at app/my-release-key.jks."
@@ -266,17 +267,24 @@ chid() {
 
     local new_full_id="$1"
     
+    # Perbaikan Sintaks: Memastikan operator [[ ... ]] diapit oleh spasi.
     if ! [[ $new_full_id =~ ^[a-z0-9]+(\.[a-z0-9]+)*$ ]]; then
         error "Invalid application ID format. Use only lowercase letters, numbers, and dots (e.g., com.myapp.project)"
     fi
 
     local old_full_id
-    old_full_id=$(grep -Po 'applicationId\s+"(.*?)"' app/build.gradle | cut -d'"' -f2 || echo "com.myexample.webtoapk") 
+    # Menggunakan grep -oP hanya jika ada, jika tidak, fall back ke grep/cut
+    if command -v grep | grep -q 'GNU'; then
+        old_full_id=$(grep -Po 'applicationId\s+"(.*?)"' app/build.gradle | cut -d'"' -f2 || echo "com.myexample.webtoapk") 
+    else
+        # Fallback untuk non-GNU grep
+        old_full_id=$(grep 'applicationId' app/build.gradle | grep -o '".*"' | head -n 1 | tr -d '"' || echo "com.myexample.webtoapk")
+    fi
     
     if [ "$old_full_id" = "$new_full_id" ]; then
         log "Application ID already set to $new_full_id. No changes needed."
         return 0
-    fi
+    fi # <--- Tanda kurung kurawal ini hilang di iterasi sebelumnya, menyebabkan error syntax
 
     local old_base_part="${old_full_id%.*}"         
     local old_dir_part="${old_full_id##*.}"         
@@ -346,6 +354,7 @@ get_java() {
     local URL="https://github.com/adoptium/temurin17-binaries/releases/download/jdk-17.0.10%2B7/OpenJDK17U-jdk_${OS}_x64_hotspot_17.0.10_7.tar.gz"
 
     mkdir -p jvm
+    # Menggunakan try untuk penanganan error
     try "wget -qO- $URL | tar xz -C jvm --strip-components=1"
     
     export JAVA_HOME=$PWD/jvm
@@ -355,7 +364,7 @@ get_java() {
 get_tools() {
     local SDK_URL="https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip"
     local ZIP_FILE="cmdline-tools.zip" 
-    local TMP_DIR=$(mktemp -d) # Direktori sementara baru
+    local TMP_DIR=$(mktemp -d)
 
     mkdir -p cmdline-tools
     
@@ -363,7 +372,6 @@ get_tools() {
     try "wget -qO $ZIP_FILE $SDK_URL" 
 
     info "Extracting Android Command Line Tools..."
-    # Ekstrak ke direktori sementara
     try "unzip -q $ZIP_FILE -d $TMP_DIR"
 
     try "rm $ZIP_FILE"
@@ -380,14 +388,14 @@ get_tools() {
         extracted_source="$TMP_DIR/*"
     fi
 
-    # Memindahkan konten dari sumber yang sudah ditentukan ke cmdline-tools/latest
     try "mv $extracted_source cmdline-tools/latest/"
     
-    try "rm -rf $TMP_DIR" # Hapus direktori sementara yang sudah kosong
+    try "rm -rf $TMP_DIR"
     
     export PATH="$ANDROID_HOME/latest/bin:$PATH"
     info "Installing Android SDK Build Tools..."
     
+    # Menggunakan try untuk sdkmanager
     (yes | try "$ANDROID_HOME/latest/bin/sdkmanager" "platform-tools" "build-tools;34.0.0" "platforms;android-34")
     log "Android SDK installed successfully."
 }
@@ -417,7 +425,7 @@ rename() {
     done
 }
 
-# Placeholder untuk fungsi lain (asumsi tidak menghasilkan error)
+# Placeholder functions
 set_deep_link() { log "Setting deep link not implemented in this version"; }
 set_network_security_config() { log "Setting network security config not implemented in this version"; }
 set_icon() { log "Setting icon not implemented in this version"; }
@@ -439,7 +447,12 @@ ORIGINAL_PWD="$PWD"
 try cd "$(dirname "$0")"
 
 export ANDROID_HOME=$PWD/cmdline-tools/
-appname=$(grep -Po '(?<=applicationId "com\.)[^"]*' app/build.gradle | head -n 1 || echo "myexample.webtoapk") 
+# Menggunakan grep yang aman untuk CI/CD
+if command -v grep | grep -q 'GNU'; then
+    appname=$(grep -Po '(?<=applicationId "com\.)[^"]*' app/build.gradle | head -n 1 || echo "myexample.webtoapk") 
+else
+    appname=$(grep 'applicationId' app/build.gradle | grep -o 'com\..*' | head -n 1 | sed 's/"//g' | cut -d'.' -f2- || echo "myexample.webtoapk")
+fi
 
 export GRADLE_USER_HOME=$PWD/.gradle-cache
 

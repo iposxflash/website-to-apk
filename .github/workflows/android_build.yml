@@ -8,6 +8,7 @@ on:
     branches:
       - main
   workflow_dispatch:
+    # Jika Anda ingin kontrol kustom, masukkan input di sini (seperti yang kita bahas sebelumnya)
 
 jobs:
   build:
@@ -17,6 +18,7 @@ jobs:
     - name: Checkout Code
       uses: actions/checkout@v4
 
+    # 1. SETUP JAVA
     - name: Set up JDK 17
       uses: actions/setup-java@v4
       with:
@@ -24,51 +26,62 @@ jobs:
         java-version: '17'
         cache: 'gradle'
 
-    - name: Setup Android SDK
-      uses: android-actions/setup-android@v3 
+    # 2. SETUP ANDROID SDK (Memperbaiki Peringatan Lama)
+    - name: Setup Android SDK (Fixing Old Warnings)
+      uses: android-actions/setup-android@v3
       with:
-        api-level: 33
-        build-tools: 33.0.0
-
+        # Menghapus 'api-level' dan 'build-tools' karena menyebabkan peringatan.
+        # Menggunakan cmdline-tools-version yang merupakan input valid.
+        cmdline-tools-version: 'latest' 
+        
+    # 3. FIX PATH & EXECUTABLE
     - name: Fix make.sh cmdline-tools path
-      # Memperbaiki masalah path yang dicari oleh skrip make.sh
       run: |
+        # Buat symlink agar make.sh dapat menemukan cmdline-tools
         mkdir -p ./cmdline-tools
-        if [ -d "$ANDROID_SDK_ROOT/cmdline-tools" ]; then
-          ln -s "$ANDROID_SDK_ROOT/cmdline-tools" ./cmdline-tools
-        else
+        if [ -d "$ANDROID_SDK_ROOT/cmdline-tools/latest" ]; then
           ln -s "$ANDROID_SDK_ROOT/cmdline-tools/latest" ./cmdline-tools
+        else
+          ln -s "$ANDROID_SDK_ROOT/cmdline-tools" ./cmdline-tools
         fi
         
     - name: Make make.sh Executable
       run: chmod +x make.sh
 
-    # PERBAIKAN FINAL: Menjalankan command yang benar untuk konfigurasi
+    # 4. ENVIRONMENT SIGNING (PENTING untuk Gradle)
+    - name: Set Keystore Environment Variables
+      # Variabel ini harus diambil dari Secret GitHub Anda
+      env:
+        KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+        KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+        KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+      run: |
+        echo "KEYSTORE_PASS=$KEYSTORE_PASSWORD" >> $GITHUB_ENV
+        echo "KEY_ALIAS=$KEY_ALIAS" >> $GITHUB_ENV
+        echo "KEY_PASS=$KEY_PASSWORD" >> $GITHUB_ENV
+        
+    # 5. CONFIG & KEYGEN
     - name: Run make.sh Apply Config
-      # Command yang benar untuk menerapkan konfigurasi dari webapk.conf
       run: ./make.sh apply_config 
 
-    - name: Run make.sh keygen
-      # Command untuk membuat keystore
+    - name: Run make.sh keygen (Creates my-release-key.jks)
       run: ./make.sh keygen
 
-    - name: Get Project Root Path
-      id: get-root-path
-      run: |
-        echo "ROOT_DIR=$(pwd)" >> $GITHUB_ENV
-
+    # 6. BUILD
     - name: Build Release (APK and AAB)
-      # Menjalankan Gradle dari root direktori
-      run: |
-        ./gradlew :app:assembleRelease :app:bundleRelease
+      # Menjalankan Gradle menggunakan variabel lingkungan yang diatur di langkah 4.
+      run: ./gradlew :app:assembleRelease :app:bundleRelease
 
+    # 7. FIND & UPLOAD ARTIFACTS
     - name: Find Build Artifacts
       id: find-artifacts
       run: |
-        BUILD_DIR="${{ env.ROOT_DIR }}/app/build"
+        # Cari file release yang sudah ditandatangani
+        BUILD_DIR="${{ github.workspace }}/app/build"
         
-        APK_PATH=$(find "$BUILD_DIR" -name "*.apk" -type f | grep "release" | head -n 1)
-        AAB_PATH=$(find "$BUILD_DIR" -name "*.aab" -type f | grep "release" | head -n 1)
+        # Cari APK dan AAB (Asumsi sudah ditandatangani dan dinamai dengan benar)
+        APK_PATH=$(find "$BUILD_DIR" -name "*release.apk" -type f | head -n 1)
+        AAB_PATH=$(find "$BUILD_DIR" -name "*release.aab" -type f | head -n 1)
         
         echo "apk_path=$APK_PATH" >> $GITHUB_OUTPUT
         echo "aab_path=$AAB_PATH" >> $GITHUB_OUTPUT
@@ -77,7 +90,7 @@ jobs:
       uses: actions/upload-artifact@v4
       with:
         name: keystore-file
-        path: ${{ env.ROOT_DIR }}/my-release-key.jks
+        path: ${{ github.workspace }}/my-release-key.jks # Gunakan path yang lebih stabil
 
     - name: Upload APK Release
       uses: actions/upload-artifact@v4

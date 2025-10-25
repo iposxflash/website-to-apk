@@ -1,7 +1,6 @@
 name: Build APK Kustom via Web
 
 on:
-  # Hapus 'push' dan 'pull_request' agar hanya dipicu melalui API web
   workflow_dispatch:
     inputs:
       app_id:
@@ -29,7 +28,7 @@ jobs:
     - name: Checkout Code
       uses: actions/checkout@v4
 
-    # 1. SETUP JAVA
+    # [Langkah 1: Setup Java dan Android SDK]
     - name: Set up JDK 17
       uses: actions/setup-java@v4
       with:
@@ -37,13 +36,11 @@ jobs:
         java-version: '17'
         cache: 'gradle'
 
-    # 2. SETUP ANDROID SDK (Mengatasi Peringatan Input Lama)
     - name: Setup Android SDK
       uses: android-actions/setup-android@v3
       with:
         cmdline-tools-version: 'latest' 
         
-    # 3. PERBAIKAN PATH CMDLINE-TOOLS (Berdasarkan make.sh Anda)
     - name: Fix make.sh cmdline-tools path
       run: |
         mkdir -p ./cmdline-tools
@@ -58,23 +55,22 @@ jobs:
         chmod +x make.sh
         chmod +x gradlew
 
-    # 4. ENVIRONMENT SIGNING (Wajib untuk Build Release)
+    # [Langkah 4: Environment Signing]
     - name: Set Keystore Environment Variables
       env:
         KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
         KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
         KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
       run: |
-        # Variabel ini akan digunakan oleh make.sh dan/atau Gradle
         echo "KEYSTORE_PASS=$KEYSTORE_PASSWORD" >> $GITHUB_ENV
         echo "KEY_ALIAS=$KEY_ALIAS" >> $GITHUB_ENV
         echo "KEY_PASS=$KEY_PASSWORD" >> $GITHUB_ENV
         
-    # 5. DOWNLOAD ICON BARU
+    # [Langkah 5: Download Icon Baru]
     - name: Download New Icon from URL
       env:
         ICON_URL: ${{ github.event.inputs.icon_url }}
-        ICON_PATH: app/example.png # Path Icon yang digunakan di webapk.conf
+        ICON_PATH: app/example.png # Path Icon Anda
       run: |
         echo "Downloading icon from: $ICON_URL"
         wget -q -O $ICON_PATH $ICON_URL
@@ -83,7 +79,7 @@ jobs:
           exit 1
         fi
 
-    # 6. MENGGANTI KONFIGURASI DI webapk.conf
+    # 🛑 LANGKAH KRITIS: PERBAIKAN SYNTAX SED 🛑
     - name: Apply Custom Configuration (Update webapk.conf)
       env:
         NEW_ID: ${{ github.event.inputs.app_id }}
@@ -93,48 +89,43 @@ jobs:
       run: |
         echo "Updating webapk.conf..."
         
-        # Perbarui ID, Nama, URL
-        sed -i "s/id = .*/id = $NEW_ID/" webapk.conf
-        sed -i "s/name = .*/name = $NEW_NAME/" webapk.conf
+        # Perbaiki: Menggunakan pemisah '|' untuk menghindari konflik dengan '/' di URL.
+        # Perbarui ID
+        sed -i "s|id = .*|id = $NEW_ID|" webapk.conf
+        # Perbarui Nama
+        sed -i "s|name = .*|name = $NEW_NAME|" webapk.conf
+        # Perbarui URL (Paling penting menggunakan '|' di sini)
         sed -i "s|mainURL = .*|mainURL = $NEW_URL|" webapk.conf
         
         # Pastikan path icon menunjuk ke file yang sudah diunduh
-        sed -i "s/icon = .*/icon = $ICON_PATH/" webapk.conf
+        sed -i "s|icon = .*|icon = $ICON_PATH|" webapk.conf
         
-        # Hapus/Pastikan requireDoubleBackToExit diatur ke nilai default (true)
-        # Jika Anda ingin selalu TRUE, gunakan:
-        sed -i "s/requireDoubleBackToExit = .*/requireDoubleBackToExit = true/" webapk.conf
+        # Kunci requireDoubleBackToExit ke 'true' (sesuai penghapusan input)
+        sed -i "s|requireDoubleBackToExit = .*|requireDoubleBackToExit = true|" webapk.conf
         
         echo "--- webapk.conf Baru ---"
         cat webapk.conf
 
-    # 7. KEYGEN & APPLY CONFIG
+    # [Sisa Langkah Build]
     - name: Run make.sh keygen (Creates my-release-key.jks)
-      # Ini akan menggunakan ENV vars dari langkah 4 untuk membuat keystore
       run: ./make.sh keygen
       
     - name: Run make.sh apply_config
-      # Menjalankan skrip proyek untuk menerapkan konfigurasi terakhir (jika make.sh Anda memerlukannya)
       run: ./make.sh apply_config 
 
-    # 8. BUILD
     - name: Build Release (APK and AAB)
       run: ./gradlew :app:assembleRelease :app:bundleRelease
 
-    # 9. FIND ARTIFACTS
     - name: Find Build Artifacts
       id: find-artifacts
       run: |
         BUILD_DIR="${{ github.workspace }}/app/build"
-        # Mencari APK dan AAB yang sudah ditandatangani
         APK_PATH=$(find "$BUILD_DIR" -name "*release.apk" -type f | head -n 1)
         AAB_PATH=$(find "$BUILD_DIR" -name "*release.aab" -type f | head -n 1)
         
-        # Simpan path sebagai output untuk upload
         echo "apk_path=$APK_PATH" >> $GITHUB_OUTPUT
         echo "aab_path=$AAB_PATH" >> $GITHUB_OUTPUT
 
-    # 10. UPLOAD ARTIFACTS
     - name: Upload APK Release
       uses: actions/upload-artifact@v4
       with:

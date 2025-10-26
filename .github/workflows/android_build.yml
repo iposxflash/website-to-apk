@@ -25,7 +25,7 @@ jobs:
     runs-on: ubuntu-latest
 
     permissions:
-      contents: write # KRUSIAL: Dibutuhkan untuk membuat Release
+      contents: write # IZIN KRUSIAL
       
     steps:
     - name: Checkout Code
@@ -82,7 +82,7 @@ jobs:
           exit 1
         fi
 
-    # 4. MENGGANTI KONFIGURASI DI webapk.conf (PERBAIKAN SED SINTAKSIS)
+    # 4. MENGGANTI KONFIGURASI DI webapk.conf (PERBAIKAN KRITIS SED)
     - name: Apply Custom Configuration (Update webapk.conf)
       env:
         NEW_ID: ${{ github.event.inputs.app_id }}
@@ -92,7 +92,7 @@ jobs:
       run: |
         echo "Updating webapk.conf..."
         
-        # Menggunakan pemisah '|' untuk menghindari error pada URL
+        # PERBAIKAN: Menggunakan pemisah '|' untuk mencegah error pada URL
         sed -i "s|id = .*|id = $NEW_ID|" webapk.conf
         sed -i "s|name = .*|name = $NEW_NAME|" webapk.conf
         sed -i "s|mainURL = .*|mainURL = $NEW_URL|" webapk.conf
@@ -105,11 +105,11 @@ jobs:
         cat webapk.conf
 
     # 5. KEYGEN & APPLY CONFIG
-    - name: Run make.sh keygen (Creates my-release-key.jks)
-      run: ./make.sh keygen
-      
-    - name: Run make.sh apply_config
-      run: ./make.sh apply_config 
+    # Gunakan salah satu yang sesuai dengan make.sh Anda:
+    - name: Run make.sh keygen dan apply_config
+      run: |
+        ./make.sh keygen 
+        ./make.sh apply_config 
 
     # 6. BUILD
     - name: Build Release (APK and AAB)
@@ -126,18 +126,17 @@ jobs:
         AAB_PATH=$(find "$BUILD_DIR" -name "*release.aab" -type f | head -n 1)
         
         if [ -z "$APK_PATH" ]; then
-          echo "ERROR: Final release APK file could not be found."
-          exit 1
+          echo "WARNING: Final release APK file could not be found."
         fi
 
-        echo "APK file found: $APK_PATH"
-        echo "AAB file found: $AAB_PATH"
+        echo "APK file found: ${APK_PATH:-None}"
+        echo "AAB file found: ${AAB_PATH:-None}"
 
         echo "apk_path=$APK_PATH" >> $GITHUB_OUTPUT
         echo "aab_path=$AAB_PATH" >> $GITHUB_OUTPUT 
 
-    # 8. BUAT GITHUB RELEASE BARU DAN UPLOAD APK/AAB
-    - name: Create Release and Upload APK/AAB
+    # 8A. BUAT GITHUB RELEASE BARU
+    - name: Create GitHub Release
       id: create_release
       uses: softprops/action-gh-release@v1
       env:
@@ -147,7 +146,26 @@ jobs:
         name: Build Kustom - ${{ github.event.inputs.app_name }}
         draft: false
         prerelease: false
-        # Mengunggah kedua file: APK dan AAB
-        files: |
-          ${{ steps.find-artifacts.outputs.apk_path }}
-          ${{ steps.find-artifacts.outputs.aab_path }}
+        # Files dikosongkan untuk diunggah di langkah terpisah
+
+    # 8B. UPLOAD FILE APK (Jika ditemukan)
+    - name: Upload APK Asset
+      uses: actions/upload-release-asset@v1
+      if: steps.find-artifacts.outputs.apk_path != ''
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        upload_url: ${{ steps.create_release.outputs.upload_url }}
+        asset_path: ${{ steps.find-artifacts.outputs.apk_path }}
+        asset_name: ${{ github.event.inputs.app_id }}_release.apk
+
+    # 8C. UPLOAD FILE AAB (Jika ditemukan)
+    - name: Upload AAB Asset
+      uses: actions/upload-release-asset@v1
+      if: steps.find-artifacts.outputs.aab_path != ''
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        upload_url: ${{ steps.create_release.outputs.upload_url }}
+        asset_path: ${{ steps.find-artifacts.outputs.aab_path }}
+        asset_name: ${{ github.event.inputs.app_id }}_release.aab

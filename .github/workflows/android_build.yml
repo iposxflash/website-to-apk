@@ -28,7 +28,7 @@ jobs:
     - name: Checkout Code
       uses: actions/checkout@v4
 
-    # [Langkah 1: Setup Java dan Android SDK]
+    # 1. SETUP JAVA DAN SDK
     - name: Set up JDK 17
       uses: actions/setup-java@v4
       with:
@@ -55,7 +55,7 @@ jobs:
         chmod +x make.sh
         chmod +x gradlew
 
-    # [Langkah 4: Environment Signing]
+    # 2. ENVIRONMENT SIGNING
     - name: Set Keystore Environment Variables
       env:
         KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
@@ -66,11 +66,11 @@ jobs:
         echo "KEY_ALIAS=$KEY_ALIAS" >> $GITHUB_ENV
         echo "KEY_PASS=$KEY_PASSWORD" >> $GITHUB_ENV
         
-    # [Langkah 5: Download Icon Baru]
+    # 3. DOWNLOAD ICON BARU
     - name: Download New Icon from URL
       env:
         ICON_URL: ${{ github.event.inputs.icon_url }}
-        ICON_PATH: app/example.png # Path Icon Anda
+        ICON_PATH: app/example.png
       run: |
         echo "Downloading icon from: $ICON_URL"
         wget -q -O $ICON_PATH $ICON_URL
@@ -79,7 +79,7 @@ jobs:
           exit 1
         fi
 
-    # 🛑 LANGKAH KRITIS: PERBAIKAN SYNTAX SED 🛑
+    # 4. MENGGANTI KONFIGURASI DI webapk.conf (PERBAIKAN SED SINTAKSIS)
     - name: Apply Custom Configuration (Update webapk.conf)
       env:
         NEW_ID: ${{ github.event.inputs.app_id }}
@@ -89,33 +89,30 @@ jobs:
       run: |
         echo "Updating webapk.conf..."
         
-        # Perbaiki: Menggunakan pemisah '|' untuk menghindari konflik dengan '/' di URL.
-        # Perbarui ID
+        # PERBAIKAN: Menggunakan pemisah '|' untuk menghindari error pada URL.
         sed -i "s|id = .*|id = $NEW_ID|" webapk.conf
-        # Perbarui Nama
         sed -i "s|name = .*|name = $NEW_NAME|" webapk.conf
-        # Perbarui URL (Paling penting menggunakan '|' di sini)
         sed -i "s|mainURL = .*|mainURL = $NEW_URL|" webapk.conf
-        
-        # Pastikan path icon menunjuk ke file yang sudah diunduh
         sed -i "s|icon = .*|icon = $ICON_PATH|" webapk.conf
         
-        # Kunci requireDoubleBackToExit ke 'true' (sesuai penghapusan input)
+        # Mengunci requireDoubleBackToExit ke 'true' (sesuai permintaan penghapusan input)
         sed -i "s|requireDoubleBackToExit = .*|requireDoubleBackToExit = true|" webapk.conf
         
         echo "--- webapk.conf Baru ---"
         cat webapk.conf
 
-    # [Sisa Langkah Build]
+    # 5. KEYGEN & APPLY CONFIG
     - name: Run make.sh keygen (Creates my-release-key.jks)
       run: ./make.sh keygen
       
     - name: Run make.sh apply_config
       run: ./make.sh apply_config 
 
+    # 6. BUILD
     - name: Build Release (APK and AAB)
       run: ./gradlew :app:assembleRelease :app:bundleRelease
 
+    # 7. FIND & UPLOAD ARTIFACTS
     - name: Find Build Artifacts
       id: find-artifacts
       run: |

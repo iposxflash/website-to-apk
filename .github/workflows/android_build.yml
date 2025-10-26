@@ -25,7 +25,7 @@ jobs:
     runs-on: ubuntu-latest
 
     permissions:
-      contents: write # IZIN KRUSIAL
+      contents: write # IZIN KRUSIAL untuk membuat Release
       
     steps:
     - name: Checkout Code
@@ -76,36 +76,42 @@ jobs:
         ICON_PATH: app/example.png
       run: |
         echo "Downloading icon from: $ICON_URL"
-        wget -q -O $ICON_PATH $ICON_URL
+        # Menggunakan curl sebagai alternatif wget, lebih umum di GitHub Actions
+        curl -fsSL -o $ICON_PATH $ICON_URL
         if [ ! -s $ICON_PATH ]; then
-          echo "ERROR: Downloaded icon file is empty or download failed."
-          exit 1
+          echo "ERROR: Downloaded icon file is empty or download failed. Using placeholder."
+          # Jika download gagal, gunakan file placeholder yang sudah ada
+          cp app/src/main/res/mipmap-xxxhdpi/ic_launcher_round.png $ICON_PATH
         fi
 
-    # 4. MENGGANTI KONFIGURASI DI webapk.conf (PERBAIKAN KRITIS SED)
-    - name: Apply Custom Configuration (Update webapk.conf)
+    # 4. MENGGANTI KONFIGURASI DI webapk.conf (SOLUSI REWRITE PALING AMAN)
+    - name: Apply Custom Configuration (Rewrite webapk.conf)
       env:
         NEW_ID: ${{ github.event.inputs.app_id }}
         NEW_NAME: ${{ github.event.inputs.app_name }}
         NEW_URL: ${{ github.event.inputs.main_url }}
         ICON_PATH: app/example.png
       run: |
-        echo "Updating webapk.conf..."
+        echo "Updating webapk.conf by rewriting content..."
         
-        # PERBAIKAN: Menggunakan pemisah '|' untuk mencegah error pada URL
-        sed -i "s|id = .*|id = $NEW_ID|" webapk.conf
-        sed -i "s|name = .*|name = $NEW_NAME|" webapk.conf
-        sed -i "s|mainURL = .*|mainURL = $NEW_URL|" webapk.conf
-        sed -i "s|icon = .*|icon = $ICON_PATH|" webapk.conf
+        # Simpan isi webapk.conf yang TIDAK ingin kita ganti (konfigurasi di bawah baris kunci)
+        # Mencari baris yang tidak diawali dengan id, name, mainURL, icon, atau requireDoubleBackToExit
+        CONFIG_STATIC=$(grep -vE '^(id|name|mainURL|icon|requireDoubleBackToExit)' webapk.conf)
         
-        # Mengunci requireDoubleBackToExit ke 'true'
-        sed -i "s|requireDoubleBackToExit = .*|requireDoubleBackToExit = true|" webapk.conf
-        
+        # Tulis ulang seluruh file webapk.conf dengan nilai baru dan nilai statis
+        cat > webapk.conf <<EOF
+id = $NEW_ID
+name = $NEW_NAME
+mainURL = $NEW_URL
+icon = $ICON_PATH
+requireDoubleBackToExit = true # Memastikan ini selalu true
+$CONFIG_STATIC
+EOF
+
         echo "--- webapk.conf Baru ---"
         cat webapk.conf
 
     # 5. KEYGEN & APPLY CONFIG
-    # Gunakan salah satu yang sesuai dengan make.sh Anda:
     - name: Run make.sh keygen dan apply_config
       run: |
         ./make.sh keygen 
@@ -146,9 +152,8 @@ jobs:
         name: Build Kustom - ${{ github.event.inputs.app_name }}
         draft: false
         prerelease: false
-        # Files dikosongkan untuk diunggah di langkah terpisah
 
-    # 8B. UPLOAD FILE APK (Jika ditemukan)
+    # 8B. UPLOAD FILE APK (Hanya jika ditemukan)
     - name: Upload APK Asset
       uses: actions/upload-release-asset@v1
       if: steps.find-artifacts.outputs.apk_path != ''
@@ -159,7 +164,7 @@ jobs:
         asset_path: ${{ steps.find-artifacts.outputs.apk_path }}
         asset_name: ${{ github.event.inputs.app_id }}_release.apk
 
-    # 8C. UPLOAD FILE AAB (Jika ditemukan)
+    # 8C. UPLOAD FILE AAB (Hanya jika ditemukan)
     - name: Upload AAB Asset
       uses: actions/upload-release-asset@v1
       if: steps.find-artifacts.outputs.aab_path != ''

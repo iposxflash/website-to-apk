@@ -24,11 +24,17 @@ jobs:
   build:
     runs-on: ubuntu-latest
 
+    permissions:
+      contents: write # IZIN KRUSIAL: Dibutuhkan untuk membuat Release
+      
     steps:
     - name: Checkout Code
       uses: actions/checkout@v4
 
     # 1. SETUP JAVA DAN SDK
+    # ... (Langkah 1, 2, 3, dan 4 (Apply Custom Configuration) dari kode final sebelumnya) ...
+    # PASTIKAN SINTAKS SED MENGGUNAKAN PEMISAH '|' UNTUK MENGHINDARI ERROR
+
     - name: Set up JDK 17
       uses: actions/setup-java@v4
       with:
@@ -112,31 +118,38 @@ jobs:
     - name: Build Release (APK and AAB)
       run: ./gradlew :app:assembleRelease :app:bundleRelease
 
-    # 7. FIND & UPLOAD ARTIFACTS
+    # 7. FIND ARTIFACTS
     - name: Find Build Artifacts
       id: find-artifacts
       run: |
         BUILD_DIR="${{ github.workspace }}/app/build"
+        # Mencari APK yang sudah ditandatangani
         APK_PATH=$(find "$BUILD_DIR" -name "*release.apk" -type f | head -n 1)
-        AAB_PATH=$(find "$BUILD_DIR" -name "*release.aab" -type f | head -n 1)
         
+        echo "APK_FILE_NAME=$(basename $APK_PATH)" >> $GITHUB_ENV
         echo "apk_path=$APK_PATH" >> $GITHUB_OUTPUT
-        echo "aab_path=$AAB_PATH" >> $GITHUB_OUTPUT
 
-    - name: Upload APK Release
-      uses: actions/upload-artifact@v4
+    # 8. BUAT GITHUB RELEASE BARU DAN UPLOAD APK
+    - name: Create Release and Upload APK
+      id: create_release
+      uses: softprops/action-gh-release@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }} # Menggunakan Token Bawaan GitHub
       with:
-        name: release-apk
-        path: ${{ steps.find-artifacts.outputs.apk_path }}
-
-    - name: Upload AAB Release
-      uses: actions/upload-artifact@v4
-      with:
-        name: release-aab
-        path: ${{ steps.find-artifacts.outputs.aab_path }}
-
-    - name: Upload Keystore (Opsional untuk backup)
-      uses: actions/upload-artifact@v4
-      with:
-        name: keystore-file
-        path: my-release-key.jks
+        tag_name: ${{ github.event.inputs.app_id }}-${{ github.sha }}
+        name: Build Kustom - ${{ github.event.inputs.app_name }}
+        draft: false
+        prerelease: false
+        files: ${{ steps.find-artifacts.outputs.apk_path }}
+        
+    - name: Get Release Download URL
+      run: |
+        # Ekstrak URL download dari output langkah sebelumnya
+        RELEASE_URL=$(curl -sL \
+          -H "Accept: application/vnd.github+json" \
+          -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
+          "https://api.github.com/repos/${{ github.repository }}/releases/latest" | \
+          jq -r '.assets[] | select(.name=="${{ env.APK_FILE_NAME }}") | .browser_download_url')
+        
+        # Simpan URL ke output agar bisa diakses oleh frontend jika diperlukan (walaupun kita akan polling)
+        echo "RELEASE_URL=$RELEASE_URL" >> $GITHUB_ENV

@@ -79,39 +79,46 @@ jobs:
         # Menggunakan curl sebagai alternatif wget, lebih umum di GitHub Actions
         curl -fsSL -o $ICON_PATH $ICON_URL
         if [ ! -s $ICON_PATH ]; then
-          echo "ERROR: Downloaded icon file is empty or download failed. Using placeholder."
-          # Jika download gagal, gunakan file placeholder yang sudah ada
-          cp app/src/main/res/mipmap-xxxhdpi/ic_launcher_round.png $ICON_PATH
+          echo "WARNING: Downloaded icon file is empty or download failed. Using placeholder."
+          # Jika download gagal, pastikan ada file placeholder (ini tergantung struktur folder Anda)
+          # Menggunakan file placeholder jika download gagal
+          if [ -f "app/src/main/res/mipmap-xxxhdpi/ic_launcher.png" ]; then
+             cp app/src/main/res/mipmap-xxxhdpi/ic_launcher.png $ICON_PATH
+          else
+             echo "ERROR: File icon placeholder tidak ditemukan. Build mungkin gagal."
+          fi
         fi
 
-    # 4. MENGGANTI KONFIGURASI DI webapk.conf (SOLUSI REWRITE PALING AMAN)
-    - name: Apply Custom Configuration (Rewrite webapk.conf)
+    # 4. MEMBUAT ULANG webapk.conf BERSIH DARI INPUT
+    - name: Create Clean webapk.conf from Inputs
       env:
         NEW_ID: ${{ github.event.inputs.app_id }}
         NEW_NAME: ${{ github.event.inputs.app_name }}
         NEW_URL: ${{ github.event.inputs.main_url }}
         ICON_PATH: app/example.png
       run: |
-        echo "Updating webapk.conf by rewriting content..."
+        echo "Creating webapk.conf..."
         
-        # Simpan isi webapk.conf yang TIDAK ingin kita ganti (konfigurasi di bawah baris kunci)
-        # Mencari baris yang tidak diawali dengan id, name, mainURL, icon, atau requireDoubleBackToExit
-        CONFIG_STATIC=$(grep -vE '^(id|name|mainURL|icon|requireDoubleBackToExit)' webapk.conf)
-        
-        # Tulis ulang seluruh file webapk.conf dengan nilai baru dan nilai statis
+        # Menggunakan heredoc untuk menulis ulang file konfigurasi secara keseluruhan
         cat > webapk.conf <<EOF
 id = $NEW_ID
 name = $NEW_NAME
 mainURL = $NEW_URL
 icon = $ICON_PATH
-requireDoubleBackToExit = true # Memastikan ini selalu true
-$CONFIG_STATIC
+# Konfigurasi Lainnya (Berdasarkan file Anda yang diunggah)
+allowSubdomains = true
+requireDoubleBackToExit = true 
+enableExternalLinks = true
+openExternalLinksInBrowser = true
+confirmOpenInBrowser = true
+allowOpenMobileApp = false
 EOF
 
         echo "--- webapk.conf Baru ---"
         cat webapk.conf
 
     # 5. KEYGEN & APPLY CONFIG
+    # Langkah ini akan membaca webapk.conf yang baru dibuat di Langkah 4
     - name: Run make.sh keygen dan apply_config
       run: |
         ./make.sh keygen 
@@ -134,9 +141,6 @@ EOF
         if [ -z "$APK_PATH" ]; then
           echo "WARNING: Final release APK file could not be found."
         fi
-
-        echo "APK file found: ${APK_PATH:-None}"
-        echo "AAB file found: ${AAB_PATH:-None}"
 
         echo "apk_path=$APK_PATH" >> $GITHUB_OUTPUT
         echo "aab_path=$AAB_PATH" >> $GITHUB_OUTPUT 
